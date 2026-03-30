@@ -5,13 +5,38 @@ from datetime import datetime
 import bcrypt
 
 
-DB_YOLU = Path("arsiv.db")
+# ── VERİTABANI YOLU AYARI ─────────────────────────────────────────
+# Yerel kullanım için: DB_YOLU = Path("arsiv.db")
+# Ağ klasörü için: DB_YOLU = Path(r"\\SERVER\paylasim\arsiv_takip\arsiv.db")
+#
+# KURULUM NOTU:
+#   1. BT'den ağ klasörü yolunu öğrenin (örn: \\192.168.1.10\paylasim)
+#   2. Aşağıdaki AG_KLASORU satırını düzenleyin
+#   3. Tüm bilgisayarlarda aynı db.py dosyasını kullanın
+#
+AG_KLASORU = ""   # ← Buraya ağ yolunu yazın: r"\\SERVER\paylasim\arsiv_takip"
+
+if AG_KLASORU:
+    _ag_yolu = Path(AG_KLASORU)
+    try:
+        _ag_yolu.mkdir(parents=True, exist_ok=True)
+        DB_YOLU = _ag_yolu / "arsiv.db"
+    except Exception as _e:
+        # Ağa erişilemezse yerel dosyaya düş, uyarı ver
+        import sys
+        print(f"[UYARI] Ağ klasörüne erişilemedi: {_e}\nYerel veritabanı kullanılıyor.", file=sys.stderr)
+        DB_YOLU = Path("arsiv.db")
+else:
+    DB_YOLU = Path("arsiv.db")
+# ──────────────────────────────────────────────────────────────────
 
 
 def veritabani_baglantisi():
-    conn = sqlite3.connect(DB_YOLU)
+    conn = sqlite3.connect(str(DB_YOLU), timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")   # Çoklu kullanıcı için kritik
+    conn.execute("PRAGMA busy_timeout = 5000")  # Kilitlenme bekleme süresi
     return conn
 
 
@@ -384,6 +409,39 @@ def file_sil(file_id: int):
     conn.close()
 
 
+def toplu_hard_delete(file_ids: list[int]) -> int:
+    """
+    Seçilen dosyaları ve tüm hareketlerini kalıcı olarak siler.
+    Döner: silinen dosya sayısı
+    """
+    if not file_ids:
+        return 0
+    conn = veritabani_baglantisi()
+    placeholders = ",".join("?" * len(file_ids))
+    # Önce hareketleri sil
+    conn.execute(f"DELETE FROM movements WHERE file_id IN ({placeholders})", file_ids)
+    # Sonra dosyaları sil
+    conn.execute(f"DELETE FROM files WHERE id IN ({placeholders})", file_ids)
+    conn.commit()
+    sayi = conn.execute("SELECT changes()").fetchone()[0]
+    conn.close()
+    return len(file_ids)
+
+
+def tum_dosyalari_sifirla() -> int:
+    """
+    TÜM dosyaları ve hareketleri kalıcı siler — tam sıfırlama.
+    Döner: silinen dosya sayısı
+    """
+    conn = veritabani_baglantisi()
+    sayi = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+    conn.execute("DELETE FROM movements")
+    conn.execute("DELETE FROM files")
+    conn.commit()
+    conn.close()
+    return sayi
+
+
 def tum_files_ozet():
     """Ana liste için özetlenmiş sorgu."""
     conn = veritabani_baglantisi()
@@ -671,6 +729,105 @@ def arsive_gonderilen_dosyalar() -> list[dict]:
     veriler = [dict(r) for r in c.fetchall()]
     conn.close()
     return veriler
+
+
+def dosya_iade_et(file_id: int, iade_eden_id: int, iade_eden_isim: str, not_metni: str = "") -> dict:
+    """
+    Arşiv görevlisi dosyayı gönderen kullanıcıya iade eder.
+    1. Mevcut zimmet kapatılır
+    2. Dosyayı gönderen kullanıcıya yeni zimmet açılır
+    3. Kullanıcıya iade bildirimi mesajı gönderilir
+    Döner: {"gonderen_id": ..., "gonderen_isim": ...}
+    """
+    import datetime as _dt
+    bugun = _dt.date.today().strftime("%Y-%m-%d")
+
+    conn = veritabani_baglantisi()
+    c = conn.cursor()
+
+    # Mevcut hareketi bul — gönderen kişiyi al
+    c.execute("""
+        SELECT id, veren_arsiv_gorevlisi, arsive_gonderen, teslim_alan_user_id
+        FROM movements
+        WHERE file_id = ? AND iade_tarihi IS NULL
+        ORDER BY id DESC LIMIT 1
+    """, (file_id,))
+    hareket = c.fetchone()
+    if not hareket:
+        conn.close()
+        raise ValueError("Bu dosyada açık zimmet bulunamadı.")
+
+    # Gönderen kişiyi bul (arsive_gonderen ismi → users tablosundan ID bul)
+    gonderen_isim = hareket["arsive_gonderen"] or hareket["veren_arsiv_gorevlisi"] or ""
+    c.execute("""
+        SELECT id, full_name FROM users
+        WHERE full_name = ? AND active = 1
+        LIMIT 1
+    """, (gonderen_isim,))
+    gonderen = c.fetchone()
+
+    if not gonderen:
+        # İsme göre bulamazsa active kullanıcılar içinde ara
+        c.execute("SELECT id, full_name FROM users WHERE active=1 AND role='viewer' ORDER BY id LIMIT 1")
+        gonderen = c.fetchone()
+
+    if not gonderen:
+        conn.close()
+        raise ValueError(f"Gönderen kullanıcı bulunamadı: {gonderen_isim}")
+
+    gonderen_id   = gonderen["id"]
+    gonderen_tam  = gonderen["full_name"]
+
+    # 1. Mevcut zimmeti kapat
+    not_ek = f" [İADE: {not_metni}]" if not_metni else " [İade edildi]"
+    conn.execute("""
+        UPDATE movements
+        SET iade_tarihi = ?, iade_alan_gorevli = ?,
+            notlar = COALESCE(notlar,'') || ?
+        WHERE file_id = ? AND iade_tarihi IS NULL
+    """, (bugun, iade_eden_isim, not_ek, file_id))
+
+    # 2. Gönderen kullanıcıya yeni zimmet aç
+    conn.execute("""
+        INSERT INTO movements
+            (file_id, teslim_tarihi, teslim_alan_personel,
+             veren_arsiv_gorevlisi, iade_tarihi, notlar,
+             teslim_alan_user_id, arsive_gonderildi)
+        VALUES (?, ?, ?, ?, NULL, ?, ?, 0)
+    """, (
+        file_id, bugun,
+        gonderen_tam,       # teslim alan = iade edilen kişi
+        iade_eden_isim,     # veren = arşiv görevlisi
+        f"[İade - {iade_eden_isim}]: {not_metni}" if not_metni else f"[İade - {iade_eden_isim}]",
+        gonderen_id,
+    ))
+    conn.commit()
+    conn.close()
+
+    # 3. Kullanıcıya bildirim mesajı gönder
+    try:
+        dosya_no = _dosya_no_getir(file_id)
+        mesaj_gonder(
+            gonderen_id=iade_eden_id,
+            gonderen=iade_eden_isim,
+            icerik=(
+                f"📂 Dosya İadesi\n\n"
+                f"Dosya No: {dosya_no}\n"
+                f"İade Eden: {iade_eden_isim}\n"
+                f"Tarih: {bugun}\n"
+                + (f"Not: {not_metni}\n" if not_metni else "") +
+                f"\nDosya tekrar üzerinize zimmetlendi."
+            ),
+            alici_id=gonderen_id,
+            alici=gonderen_tam,
+        )
+    except Exception:
+        pass
+
+    action_log_ekle(iade_eden_id, iade_eden_isim, iade_eden_isim, "arsiv",
+                    "DOSYA_İADE", f"file_id={file_id} → {gonderen_tam} | not: {not_metni}")
+
+    return {"gonderen_id": gonderen_id, "gonderen_isim": gonderen_tam}
 
 
 def file_arsive_al(file_id: int, iade_tarihi: str, iade_alan_gorevli: str):
@@ -1135,21 +1292,30 @@ def konusma_sil(user_id: int, diger_id: int,
 def konusma_listesi_getir(user_id: int) -> list[dict]:
     """
     Sadece gerçek yazışma olan kullanıcıları döner.
-    Her kullanıcı için: son mesaj, zaman, okunmamış sayısı, karşı taraf bilgisi.
+    Kullanıcının sildiği mesajlar hesaba katılmaz.
+    Tüm mesajlar silinmişse konuşma listede görünmez.
     """
     conn = veritabani_baglantisi()
     c = conn.cursor()
     c.execute("""
-        WITH son_mesajlar AS (
-            SELECT
+        WITH gorunen_mesajlar AS (
+            -- Bu kullanıcı için görünür (silinmemiş) mesajlar
+            SELECT m.*,
                 CASE
-                    WHEN gonderen_id = ? THEN alici_id
-                    ELSE gonderen_id
-                END AS diger_id,
-                MAX(id) AS son_id
-            FROM messages
-            WHERE genel = 0
-              AND (gonderen_id = ? OR alici_id = ?)
+                    WHEN m.gonderen_id = ? THEN m.alici_id
+                    ELSE m.gonderen_id
+                END AS diger_id
+            FROM messages m
+            LEFT JOIN message_deletes md
+                ON md.message_id = m.id AND md.user_id = ?
+            WHERE m.genel = 0
+              AND (m.gonderen_id = ? OR m.alici_id = ?)
+              AND md.id IS NULL
+        ),
+        son_mesajlar AS (
+            -- Her konuşma için en son görünür mesajı bul
+            SELECT diger_id, MAX(id) AS son_id
+            FROM gorunen_mesajlar
             GROUP BY diger_id
         )
         SELECT
@@ -1162,18 +1328,19 @@ def konusma_listesi_getir(user_id: int) -> list[dict]:
             (
                 SELECT COUNT(*) FROM messages mm
                 LEFT JOIN message_reads mr ON mr.message_id=mm.id AND mr.user_id=?
-                LEFT JOIN message_deletes md ON md.message_id=mm.id AND md.user_id=?
+                LEFT JOIN message_deletes md2 ON md2.message_id=mm.id AND md2.user_id=?
                 WHERE mm.gonderen_id = u.id
                   AND mm.alici_id = ?
                   AND mm.genel = 0
                   AND mr.id IS NULL
-                  AND md.id IS NULL
+                  AND md2.id IS NULL
             ) AS okunmamis
         FROM son_mesajlar sm
         JOIN users u ON u.id = sm.diger_id
         JOIN messages m ON m.id = sm.son_id
         ORDER BY m.olusturma DESC
-    """, (user_id, user_id, user_id, user_id, user_id, user_id))
+    """, (user_id, user_id, user_id, user_id,
+          user_id, user_id, user_id))
     veriler = [dict(r) for r in c.fetchall()]
     conn.close()
     return veriler

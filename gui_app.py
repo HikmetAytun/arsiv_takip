@@ -31,6 +31,7 @@ from db import (
     DB_YOLU, action_log_ekle, action_loglarini_getir,
     acik_movement_var_mi, dosya_ve_hareket_ekle, excel_verisini_yukle,
     file_arsive_al, file_gecmisi_getir, file_guncelle, file_sil,
+    toplu_hard_delete, tum_dosyalari_sifirla,
     giris_yap, ilce_bazli_istatistik, istatistik_ozet,
     kullanici_durum_degistir, kullanici_ekle, kullanici_guncelle,
     kullanici_sifre_sifirla, login_loglarini_getir, movement_ekle,
@@ -49,6 +50,7 @@ from db import (
     movement_user_id_guncelle,
     arsive_gonder, arsive_gonder_iptal, arsive_gonderilen_dosyalar,
     arsiv_gorevlisini_getir, tum_arsiv_gorevlileri,
+    dosya_iade_et,
 )
 
 
@@ -99,118 +101,94 @@ ROL_ETIKET = {
 # Boş bırakılırsa sadece yerel klasöre kaydeder
 EXCEL_AG_KLASORU = ""   # Örn: r"\\SERVER\arsiv_yedek"
 
-def otomatik_excel_yedek(ag_klasoru: str = EXCEL_AG_KLASORU):
+def excel_satir_ekle(dosya_bilgisi: dict):
     """
-    Tüm dosyaları Excel'e döker.
-    - Yerel: backups/excel/ klasörüne
-    - Ağ: EXCEL_AG_KLASORU'na (ayarlıysa)
-    Her kayıtta çağrılır.
+    Her yeni dosya kaydında sabit Excel dosyasına yeni satır ekler.
+    Dosya yoksa oluşturur, varsa sonuna satır ekler (append).
+    - Yerel: backups/arsiv_kayitlari.xlsx
+    - Ağ: EXCEL_AG_KLASORU/arsiv_kayitlari.xlsx (ayarlıysa)
     """
     try:
         import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        from db import tum_files_ozet
+        from openpyxl.styles import Font, PatternFill, Alignment
         import datetime as _dt
 
-        veriler = tum_files_ozet()
-        simdi   = _dt.datetime.now()
-        dosya_adi = f"arsiv_{simdi.strftime('%Y%m%d_%H%M%S')}.xlsx"
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Zimmet Listesi"
-
-        # Başlıklar
-        basliklar = [
-            "Dosya No", "İlçe", "Şefliği", "Ada", "Parsel",
-            "Durum", "Teslim Alan", "Arşiv Görevlisi",
-            "Teslim Tarihi", "Bekleme (gün)", "Hareket Sayısı"
+        EXCEL_ADI  = "arsiv_kayitlari.xlsx"
+        BASLIKLAR  = [
+            "Kayıt No", "Dosya No", "İlçe", "Müdürlük", "Ada", "Parsel",
+            "Teslim Alan", "Arşiv Görevlisi", "Teslim Tarihi", "Kayıt Zamanı"
         ]
-        basl_stil = Font(bold=True, color="FFFFFF")
-        basl_dolu = PatternFill("solid", fgColor="0F172A")
-        orta      = Alignment(horizontal="center", vertical="center")
 
-        ws.append(basliklar)
-        for cell in ws[1]:
-            cell.font      = basl_stil
-            cell.fill      = basl_dolu
-            cell.alignment = orta
+        def _dosyaya_yaz(yol: Path):
+            yol.parent.mkdir(parents=True, exist_ok=True)
+            # Dosya varsa aç, yoksa yeni oluştur
+            if yol.exists():
+                wb = openpyxl.load_workbook(str(yol))
+                ws = wb.active
+            else:
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "Arşiv Kayıtları"
+                # Başlık satırı
+                ws.append(BASLIKLAR)
+                for cell in ws[1]:
+                    cell.font      = Font(bold=True, color="FFFFFF", size=11)
+                    cell.fill      = PatternFill("solid", fgColor="1C2434")
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                ws.row_dimensions[1].height = 26
+                # Sütun genişlikleri
+                for col, w in zip("ABCDEFGHIJ", [8,14,14,30,10,10,20,20,14,18]):
+                    ws.column_dimensions[col].width = w
 
-        ws.row_dimensions[1].height = 28
+            # Sıra no = mevcut satır sayısı (başlık hariç)
+            kayit_no = ws.max_row  # başlık satırı 1, ilk kayıt 2 vs.
 
-        # Durum renkleri
-        renk_map = {
-            "ARŞİVDE":           "ECFDF5",
-            "ZİMMETTE":          "EFF6FF",
-            "GECİKMİŞ":         "FEF2F2",
-            "ARŞİVE GÖNDERİLDİ":"FFFBEB",
-        }
-
-        for ri, r in enumerate(veriler, 2):
-            durum = r.get("durum", "")
+            # Yeni satır ekle
+            simdi = _dt.datetime.now().strftime("%d.%m.%Y %H:%M")
             satir = [
-                r.get("orijinal_dosya_no",""),
-                r.get("ilce",""),
-                r.get("sefligi",""),
-                r.get("ada",""),
-                r.get("parsel",""),
-                durum,
-                r.get("teslim_alan_personel",""),
-                r.get("veren_arsiv_gorevlisi",""),
-                r.get("teslim_tarihi",""),
-                r.get("bekleme_gun", 0),
-                r.get("hareket_sayisi", 0),
+                kayit_no,
+                dosya_bilgisi.get("dosya_no", ""),
+                dosya_bilgisi.get("ilce", ""),
+                dosya_bilgisi.get("sefligi", ""),
+                dosya_bilgisi.get("ada", ""),
+                dosya_bilgisi.get("parsel", ""),
+                dosya_bilgisi.get("teslim_alan", ""),
+                dosya_bilgisi.get("arsiv_gorevlisi", ""),
+                dosya_bilgisi.get("teslim_tarihi", ""),
+                simdi,
             ]
             ws.append(satir)
-            dolu_renk = renk_map.get(durum, "FFFFFF")
-            dolu = PatternFill("solid", fgColor=dolu_renk)
+
+            # Yeni satıra açık mavi zemin
+            ri = ws.max_row
+            dolu = PatternFill("solid", fgColor="EFF6FF")
+            orta = Alignment(horizontal="center", vertical="center")
             for cell in ws[ri]:
                 cell.fill      = dolu
                 cell.alignment = orta
+            ws.row_dimensions[ri].height = 22
 
-        # Sütun genişlikleri
-        for col, w in zip("ABCDEFGHIJK", [12,15,18,8,8,20,18,18,14,12,12]):
-            ws.column_dimensions[col].width = w
-
-        # Özet sekme
-        ws2 = wb.create_sheet("Özet")
-        ws2.append(["Tarih", simdi.strftime("%d.%m.%Y %H:%M")])
-        ws2.append(["Toplam Dosya", len(veriler)])
-        ws2.append(["Arşivde", sum(1 for r in veriler if r.get("durum")=="ARŞİVDE")])
-        ws2.append(["Zimmette", sum(1 for r in veriler if r.get("durum")=="ZİMMETTE")])
-        ws2.append(["Gecikmiş", sum(1 for r in veriler if r.get("durum")=="GECİKMİŞ")])
-        ws2.append(["Arşive Gönderildi",
-                    sum(1 for r in veriler if r.get("durum")=="ARŞİVE GÖNDERİLDİ")])
+            wb.save(str(yol))
 
         # Yerel kayıt
-        yerel_klasor = Path("backups") / "excel"
-        yerel_klasor.mkdir(parents=True, exist_ok=True)
-        yerel_yol = yerel_klasor / dosya_adi
-        wb.save(str(yerel_yol))
+        yerel_yol = Path("backups") / EXCEL_ADI
+        _dosyaya_yaz(yerel_yol)
 
-        # Eski yedekleri temizle (son 30 tut)
-        tum_yedekler = sorted(yerel_klasor.glob("arsiv_*.xlsx"))
-        for eski in tum_yedekler[:-30]:
-            try: eski.unlink()
-            except Exception: pass
-
-        # Ağ klasörüne kopyala
-        if ag_klasoru:
+        # Ağ klasörüne de kaydet
+        if EXCEL_AG_KLASORU:
             try:
-                import shutil
-                ag_path = Path(ag_klasoru)
-                ag_path.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(yerel_yol), str(ag_path / dosya_adi))
-                # Ağda da son 30 tut
-                ag_yedekler = sorted(ag_path.glob("arsiv_*.xlsx"))
-                for eski in ag_yedekler[:-30]:
-                    try: eski.unlink()
-                    except Exception: pass
+                ag_yol = Path(EXCEL_AG_KLASORU) / EXCEL_ADI
+                _dosyaya_yaz(ag_yol)
             except Exception:
                 pass  # Ağ erişim hatası sessizce geç
 
     except Exception:
-        pass  # Yedek hatası uygulamayı durdurmasın
+        pass  # Excel hatası uygulamayı durdurmasın
+
+
+def otomatik_excel_yedek(ag_klasoru: str = EXCEL_AG_KLASORU):
+    """Geriye dönük uyumluluk — artık kullanılmıyor, sadece sessizce geçer."""
+    pass
 
 
 
@@ -218,95 +196,103 @@ def otomatik_excel_yedek(ag_klasoru: str = EXCEL_AG_KLASORU):
 # RENK SİSTEMİ
 # ─────────────────────────────────────────────────────────────
 P = {
-    # Temel arka plan — hafif soğuk gri
-    "bg":           "#F1F5F9",
+    # ── Açık tema (varsayılan) ──
+    "bg":           "#F0F2F5",
     "surface":      "#FFFFFF",
-    "surface2":     "#F8FAFC",
-    "border":       "#E2E8F0",
-    "border2":      "#CBD5E1",
+    "surface2":     "#F7F8FA",
+    "border":       "#DDE1E7",
+    "border2":      "#C4CAD4",
 
-    # Sidebar — derin koyu navy
-    "navy":         "#0F172A",
-    "navy2":        "#1E293B",
-    "navy3":        "#334155",
-    "navy_text":    "#94A3B8",
-    "navy_text_a":  "#F1F5F9",
-    "navy_active":  "#3B82F6",
+    # ── Sidebar ──
+    "navy":         "#1C2434",
+    "navy2":        "#243042",
+    "navy3":        "#2E3D54",
+    "navy_text":    "#8FA3BE",
+    "navy_text_a":  "#EDF2F7",
+    "navy_active":  "#1A6FBF",
 
-    # Yazı
-    "txt":          "#0F172A",
-    "txt2":         "#1E293B",
-    "txt3":         "#475569",
-    "txt4":         "#94A3B8",
+    # ── Yazı ──
+    "txt":          "#1A2332",
+    "txt2":         "#2D3F55",
+    "txt3":         "#536478",
+    "txt4":         "#8FA3BE",
 
-    # Mavi — canlı
-    "blue":         "#2563EB",
-    "blue2":        "#1D4ED8",
-    "blue_bg":      "#EFF6FF",
-    "blue_t":       "#1E40AF",
+    # ── Mavi ──
+    "blue":         "#1A6FBF",
+    "blue2":        "#155EA0",
+    "blue_bg":      "#E8F1FA",
+    "blue_t":       "#0D4A8A",
 
-    # Yeşil
-    "green":        "#059669",
-    "green_bg":     "#ECFDF5",
-    "green_t":      "#065F46",
+    # ── Yeşil ──
+    "green":        "#0A7C4E",
+    "green_bg":     "#E6F4EE",
+    "green_t":      "#065035",
 
-    # Amber
-    "amber":        "#D97706",
-    "amber_bg":     "#FFFBEB",
-    "amber_t":      "#92400E",
+    # ── Amber ──
+    "amber":        "#B86A00",
+    "amber_bg":     "#FEF3E2",
+    "amber_t":      "#7A4500",
 
-    # Kırmızı
-    "red":          "#DC2626",
-    "red_bg":       "#FEF2F2",
-    "red_t":        "#991B1B",
+    # ── Kırmızı ──
+    "red":          "#C0392B",
+    "red_bg":       "#FDECEA",
+    "red_t":        "#7D2318",
 
-    # Mor
-    "purple":       "#7C3AED",
-    "purple_bg":    "#F5F3FF",
-    "purple_t":     "#4C1D95",
+    # ── Mor ──
+    "purple":       "#6B3FA0",
+    "purple_bg":    "#F0EBF8",
+    "purple_t":     "#3D1F6B",
 
-    # Tablo satır renkleri
-    "row_red":      "#FFF1F1",
-    "row_yellow":   "#FEFCE8",
+    # ── Tablo satır renkleri ──
+    "row_red":      "#FDF0EF",
+    "row_yellow":   "#FEFBF0",
     "row_white":    "#FFFFFF",
+}
+
+# Açık tema değerleri (Görünüm > Açık Tema ile geçiş)
+P_ACIK = {
+    "bg":"#F0F2F5","surface":"#FFFFFF","surface2":"#F7F8FA",
+    "border":"#DDE1E7","border2":"#C4CAD4",
+    "navy":"#1C2434","navy2":"#243042","navy3":"#2E3D54",
+    "navy_text":"#8FA3BE","navy_text_a":"#EDF2F7","navy_active":"#1A6FBF",
+    "txt":"#1A2332","txt2":"#2D3F55","txt3":"#536478","txt4":"#8FA3BE",
+    "blue":"#1A6FBF","blue2":"#155EA0","blue_bg":"#E8F1FA","blue_t":"#0D4A8A",
+    "green":"#0A7C4E","green_bg":"#E6F4EE","green_t":"#065035",
+    "amber":"#B86A00","amber_bg":"#FEF3E2","amber_t":"#7A4500",
+    "red":"#C0392B","red_bg":"#FDECEA","red_t":"#7D2318",
+    "purple":"#6B3FA0","purple_bg":"#F0EBF8","purple_t":"#3D1F6B",
+    "row_red":"#FDF0EF","row_yellow":"#FEFBF0","row_white":"#FFFFFF",
 }
 
 # ─────────────────────────────────────────────────────────────
 # ANA STİL
 # ─────────────────────────────────────────────────────────────
 ANA_STIL = f"""
-
 QWidget {{
-    font-family: -apple-system, 'Segoe UI', 'SF Pro Text', 'Inter', sans-serif;
+    font-family: 'Segoe UI', -apple-system, 'SF Pro Text', Arial, sans-serif;
     font-size: 13px;
     color: {P['txt']};
     background-color: {P['bg']};
 }}
 QMainWindow {{ background: {P['bg']}; }}
 QDialog {{ background: {P['surface']}; }}
+QFrame {{ color: {P['txt']}; }}
+QLabel {{ color: {P['txt']}; background: transparent; }}
 
 /* ── Scrollbar ── */
-QScrollBar:vertical {{
-    background: transparent; width: 6px; margin: 0;
-}}
-QScrollBar::handle:vertical {{
-    background: {P['border2']}; border-radius: 3px; min-height: 30px;
-}}
+QScrollBar:vertical {{ background: transparent; width: 6px; margin: 0; }}
+QScrollBar::handle:vertical {{ background: {P['border2']}; border-radius: 3px; min-height: 30px; }}
 QScrollBar::handle:vertical:hover {{ background: {P['txt4']}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QScrollBar:horizontal {{
-    background: transparent; height: 6px;
-}}
-QScrollBar::handle:horizontal {{
-    background: {P['border2']}; border-radius: 3px;
-}}
+QScrollBar:horizontal {{ background: transparent; height: 6px; }}
+QScrollBar::handle:horizontal {{ background: {P['border2']}; border-radius: 3px; }}
 
-/* ── Inputs ── */
+/* ── Input alanları ── */
 QLineEdit, QTextEdit {{
     background: {P['surface']};
-    border: 1.5px solid {P['border']};
-    border-radius: 10px;
-    padding: 9px 14px;
+    border: 1px solid {P['border2']};
+    border-radius: 6px;
+    padding: 8px 12px;
     color: {P['txt']};
     font-size: 13px;
     selection-background-color: {P['blue']};
@@ -314,7 +300,7 @@ QLineEdit, QTextEdit {{
 }}
 QLineEdit:focus, QTextEdit:focus {{
     border: 1.5px solid {P['blue']};
-    background: #FAFCFF;
+    background: {P['surface']};
 }}
 QLineEdit:hover {{ border-color: {P['border2']}; }}
 QLineEdit::placeholder {{ color: {P['txt4']}; }}
@@ -322,14 +308,14 @@ QLineEdit::placeholder {{ color: {P['txt4']}; }}
 /* ── ComboBox ── */
 QComboBox {{
     background: {P['surface']};
-    border: 1.5px solid {P['border']};
-    border-radius: 10px;
-    padding: 8px 14px;
+    border: 1px solid {P['border2']};
+    border-radius: 6px;
+    padding: 7px 12px;
     color: {P['txt']};
     min-width: 130px;
     font-size: 13px;
 }}
-QComboBox:hover {{ border-color: {P['border2']}; }}
+QComboBox:hover {{ border-color: {P['blue']}; }}
 QComboBox:focus {{ border-color: {P['blue']}; }}
 QComboBox::drop-down {{ border: none; width: 28px; subcontrol-position: right center; }}
 QComboBox::down-arrow {{
@@ -341,8 +327,8 @@ QComboBox::down-arrow {{
 }}
 QComboBox QAbstractItemView {{
     background: {P['surface']};
-    border: 1px solid {P['border']};
-    border-radius: 10px;
+    border: 1px solid {P['border2']};
+    border-radius: 6px;
     selection-background-color: {P['blue_bg']};
     selection-color: {P['blue_t']};
     padding: 4px; outline: none;
@@ -350,11 +336,8 @@ QComboBox QAbstractItemView {{
 
 /* ── DateEdit ── */
 QDateEdit {{
-    background: {P['surface']};
-    border: 1.5px solid {P['border']};
-    border-radius: 10px;
-    padding: 8px 14px;
-    color: {P['txt']};
+    background: {P['surface']}; border: 1px solid {P['border2']};
+    border-radius: 6px; padding: 7px 12px; color: {P['txt']};
 }}
 QDateEdit:focus {{ border-color: {P['blue']}; }}
 QDateEdit::drop-down {{ border: none; width: 24px; }}
@@ -362,150 +345,123 @@ QDateEdit::down-arrow {{
     image: none; width: 0; height: 0;
     border-left: 4px solid transparent;
     border-right: 4px solid transparent;
-    border-top: 5px solid {P['txt3']};
-    margin-right: 8px;
+    border-top: 5px solid {P['txt3']}; margin-right: 8px;
 }}
 
-/* ── Buttons ── */
+/* ── Butonlar ── */
 QPushButton {{
     background: {P['blue']};
     color: white;
     border: none;
-    border-radius: 10px;
-    padding: 10px 20px;
+    border-radius: 6px;
+    padding: 9px 20px;
     font-weight: 600;
     font-size: 13px;
+    letter-spacing: 0.2px;
 }}
 QPushButton:hover {{ background: {P['blue2']}; }}
-QPushButton:pressed {{ background: #1E3A8A; }}
+QPushButton:pressed {{ background: #0D4A8A; }}
 QPushButton:disabled {{ background: {P['border']}; color: {P['txt4']}; }}
 
 QPushButton#ghost {{
     background: {P['surface']};
     color: {P['txt2']};
-    border: 1.5px solid {P['border']};
+    border: 1px solid {P['border2']};
 }}
 QPushButton#ghost:hover {{
-    background: {P['bg']}; border-color: {P['border2']}; color: {P['txt']};
+    background: {P['bg']}; border-color: {P['blue']}; color: {P['blue']};
 }}
-QPushButton#success {{ background: {P['green']}; }}
-QPushButton#success:hover {{ background: #047857; }}
-QPushButton#danger  {{ background: {P['red']};   }}
-QPushButton#danger:hover  {{ background: #B91C1C; }}
-QPushButton#warning {{ background: {P['amber']}; }}
-QPushButton#warning:hover {{ background: #B45309; }}
+QPushButton#success {{ background: {P['green']}; }} QPushButton#success:hover {{ background: #086640; }}
+QPushButton#danger  {{ background: {P['red']};   }} QPushButton#danger:hover  {{ background: #A0311F; }}
+QPushButton#warning {{ background: {P['amber']}; }} QPushButton#warning:hover {{ background: #995800; }}
 QPushButton#flat {{
     background: transparent; color: {P['blue']};
     border: none; padding: 6px 10px; font-weight: 500;
 }}
-QPushButton#flat:hover {{ background: {P['blue_bg']}; border-radius: 8px; }}
+QPushButton#flat:hover {{ background: {P['blue_bg']}; border-radius: 6px; }}
 
-/* ── Table ── */
+/* ── Tablo ── */
 QTableWidget {{
     background: {P['surface']};
     border: 1px solid {P['border']};
-    border-radius: 14px;
+    border-radius: 8px;
     gridline-color: {P['border']};
     selection-background-color: transparent;
     outline: none;
     font-size: 13px;
-    alternate-background-color: #FAFBFC;
 }}
-QTableWidget::item {{
-    padding: 11px 14px;
-    border: none;
-    border-bottom: 1px solid #F1F5F9;
-}}
-QTableWidget::item:selected {{
-    background: {P['blue_bg']};
-    color: {P['blue_t']};
-    border-radius: 4px;
-}}
-QTableWidget::item:hover {{ background: #F0F7FF; }}
+QTableWidget::item {{ padding: 10px 12px; border: none; border-bottom: 1px solid {P['border']}; }}
+QTableWidget::item:selected {{ background: {P['blue_bg']}; color: {P['blue_t']}; }}
+QTableWidget::item:hover {{ background: #EEF3FA; }}
 QHeaderView::section {{
-    background: #F8FAFC;
+    background: {P['surface2']};
     color: {P['txt3']};
-    padding: 12px 14px;
     border: none;
-    border-bottom: 2px solid {P['border']};
+    border-bottom: 2px solid {P['border2']};
+    border-right: 1px solid {P['border']};
+    padding: 10px 12px;
     font-weight: 700;
     font-size: 11px;
     letter-spacing: 0.8px;
     text-transform: uppercase;
 }}
-QHeaderView::section:first {{ border-radius: 14px 0 0 0; }}
-QHeaderView::section:last  {{ border-radius: 0 14px 0 0; }}
+QHeaderView::section:first {{ border-radius: 8px 0 0 0; }}
+QHeaderView::section:last  {{ border-radius: 0 8px 0 0; border-right: none; }}
 QHeaderView::section:hover {{ background: {P['border']}; }}
 
-/* ── Tabs ── */
-QTabWidget::pane {{
-    border: 1px solid {P['border']}; border-radius: 12px;
-    background: {P['surface']}; top: -1px;
-}}
+/* ── Sekmeler ── */
+QTabWidget::pane {{ border: 1px solid {P['border']}; border-radius: 8px; background: {P['surface']}; top: -1px; }}
 QTabBar::tab {{
     background: transparent; color: {P['txt3']};
-    padding: 11px 22px; margin-right: 2px;
+    padding: 10px 20px; margin-right: 2px;
     border-bottom: 2px solid transparent;
     font-weight: 500; font-size: 13px;
 }}
-QTabBar::tab:selected {{
-    color: {P['blue']}; border-bottom: 2px solid {P['blue']}; font-weight: 700;
-}}
-QTabBar::tab:hover:!selected {{
-    color: {P['txt']}; background: {P['bg']}; border-radius: 8px 8px 0 0;
-}}
+QTabBar::tab:selected {{ color: {P['blue']}; border-bottom: 2px solid {P['blue']}; font-weight: 700; }}
+QTabBar::tab:hover:!selected {{ color: {P['txt']}; background: {P['bg']}; border-radius: 6px 6px 0 0; }}
 
 /* ── GroupBox ── */
 QGroupBox {{
     background: {P['surface']}; border: 1px solid {P['border']};
-    border-radius: 14px; margin-top: 8px;
-    padding: 20px 16px 16px 16px; font-weight: 700;
+    border-radius: 8px; margin-top: 8px;
+    padding: 18px 14px 14px 14px; font-weight: 700;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
-    left: 18px; top: 4px;
-    color: {P['txt3']}; font-size: 10px;
-    font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+    left: 16px; top: 4px; color: {P['txt3']};
+    font-size: 10px; font-weight: 700; letter-spacing: 0.8px;
 }}
 
-/* ── Labels & Menu ── */
-QLabel {{ color: {P['txt']}; background: transparent; }}
-QMenuBar {{
-    background: {P['surface']};
-    border-bottom: 1px solid {P['border']};
-    color: {P['txt2']}; font-size: 13px; padding: 2px 0;
-}}
-QMenuBar::item:selected {{
-    background: {P['blue_bg']}; color: {P['blue_t']}; border-radius: 6px;
-}}
-QMenu {{
-    background: {P['surface']}; border: 1px solid {P['border']};
-    border-radius: 12px; padding: 6px;
-}}
-QMenu::item {{ padding: 8px 16px; border-radius: 8px; color: {P['txt2']}; }}
+/* ── Menü ── */
+QMenuBar {{ background: {P['surface']}; border-bottom: 1px solid {P['border']}; color: {P['txt2']}; font-size: 13px; }}
+QMenuBar::item:selected {{ background: {P['blue_bg']}; color: {P['blue_t']}; border-radius: 4px; }}
+QMenu {{ background: {P['surface']}; border: 1px solid {P['border2']}; border-radius: 8px; padding: 4px; }}
+QMenu::item {{ padding: 8px 16px; border-radius: 4px; color: {P['txt2']}; }}
 QMenu::item:selected {{ background: {P['blue_bg']}; color: {P['blue_t']}; }}
 QMenu::separator {{ background: {P['border']}; height: 1px; margin: 4px 8px; }}
 
 /* ── StatusBar ── */
-QStatusBar {{
-    background: {P['surface']};
-    border-top: 1px solid {P['border']};
-    color: {P['txt3']}; font-size: 11px; padding: 2px 8px;
-}}
+QStatusBar {{ background: {P['surface']}; border-top: 1px solid {P['border']}; color: {P['txt3']}; font-size: 11px; padding: 2px 8px; }}
 QStatusBar::item {{ border: none; }}
 """
 
 KOYU_STIL = f"""
 QWidget {{
-    font-family: -apple-system, 'Segoe UI', 'SF Pro Text', 'Inter', sans-serif;
+    font-family: 'Segoe UI', -apple-system, 'SF Pro Text', Arial, sans-serif;
     font-size: 13px;
     color: #E2E8F0;
     background-color: #0D1117;
 }}
 QMainWindow {{ background: #0D1117; }}
 QDialog {{ background: #161B22; }}
-QFrame {{ color: #E2E8F0; }}
+QFrame {{ background-color: #161B22; color: #E2E8F0; border: none; }}
+QFrame[frameShape="0"] {{ background-color: transparent; }}
 QLabel {{ color: #E2E8F0; background: transparent; }}
+QScrollArea {{ background: #0D1117; border: none; }}
+QScrollArea > QWidget > QWidget {{ background: #0D1117; }}
+QStackedWidget {{ background: #0D1117; }}
+QAbstractScrollArea {{ background-color: #0D1117; }}
+QSplitter {{ background: #0D1117; }}
 
 QScrollBar:vertical {{ background: transparent; width: 6px; margin: 0; }}
 QScrollBar::handle:vertical {{ background: #30363D; border-radius: 3px; min-height: 30px; }}
@@ -587,6 +543,8 @@ QPushButton#warning {{ background: #D97706; }} QPushButton#warning:hover {{ back
 QPushButton#flat {{ background: transparent; color: #60A5FA; border: none; padding: 6px 10px; font-weight: 500; }}
 QPushButton#flat:hover {{ background: #1F2D40; border-radius: 8px; }}
 
+QFrame {{ background: #161B22; color: #E2E8F0; }}
+QWidget {{ background-color: #0D1117; }}
 QTableWidget {{
     background: #161B22;
     border: 1px solid #30363D;
@@ -947,52 +905,52 @@ class KartMetrik(QFrame):
     def __init__(self, baslik: str, tema: str = "blue", parent=None):
         super().__init__(parent)
         bg, accent, clr, ikon = self.TEMA.get(tema, self.TEMA["blue"])
-        self.setFixedHeight(106)
+        self.setFixedHeight(96)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setStyleSheet(f"""
             QFrame {{
                 background: {P['surface']};
                 border: 1px solid {P['border']};
-                border-radius: 14px;
+                border-radius: 12px;
             }}
         """)
 
         # Sol renk şeridi
         serit = QFrame(self)
-        serit.setGeometry(0, 0, 4, 106)
-        serit.setStyleSheet(f"background:{clr}; border-radius:14px 0 0 14px;")
+        serit.setGeometry(0, 0, 4, 96)
+        serit.setStyleSheet(f"background:{clr}; border-radius:12px 0 0 12px;")
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(22, 14, 18, 14)
-        lay.setSpacing(14)
+        lay.setContentsMargins(14, 10, 12, 10)
+        lay.setSpacing(10)
 
         # İkon dairesi
         ikon_lbl = QLabel(ikon)
-        ikon_lbl.setFixedSize(46, 46)
+        ikon_lbl.setFixedSize(38, 38)
         ikon_lbl.setAlignment(Qt.AlignCenter)
         ikon_lbl.setStyleSheet(f"""
             background: {bg};
-            border-radius: 23px;
-            font-size: 20px;
+            border-radius: 10px;
+            font-size: 17px;
         """)
         lay.addWidget(ikon_lbl)
 
         txt_lay = QVBoxLayout()
-        txt_lay.setSpacing(3)
+        txt_lay.setSpacing(2)
         txt_lay.setContentsMargins(0, 0, 0, 0)
 
         self._sayi = QLabel("—")
         self._sayi.setStyleSheet(f"""
-            font-size: 28px; font-weight: 800;
-            color: {clr}; letter-spacing: -1px;
+            font-size: 22px; font-weight: 800;
+            color: {clr}; letter-spacing: -0.5px;
         """)
         self._baslik = QLabel(baslik)
         self._baslik.setStyleSheet(f"""
-            font-size: 11px; font-weight: 600;
-            color: {P['txt4']}; letter-spacing: 0.5px;
+            font-size: 10px; font-weight: 600;
+            color: {P['txt4']}; letter-spacing: 0.3px;
         """)
         self._alt = QLabel("")
-        self._alt.setStyleSheet(f"font-size: 10px; color: {P['txt4']};")
+        self._alt.setStyleSheet(f"font-size: 9px; color: {P['txt4']};")
 
         txt_lay.addStretch()
         txt_lay.addWidget(self._sayi)
@@ -1135,16 +1093,16 @@ class NavButon(QPushButton):
             QPushButton {{
                 background: transparent;
                 border: none;
-                border-radius: 10px;
+                border-radius: 6px;
                 border-left: 3px solid transparent;
                 text-align: left;
             }}
             QPushButton:hover {{
-                background: rgba(255,255,255,0.07);
-                border-left: 3px solid rgba(59,130,246,0.4);
+                background: rgba(255,255,255,0.08);
+                border-left: 3px solid rgba(26,111,191,0.5);
             }}
             QPushButton:checked {{
-                background: rgba(59,130,246,0.18);
+                background: rgba(26,111,191,0.20);
                 border-left: 3px solid {P['navy_active']};
             }}
         """)
@@ -1701,8 +1659,9 @@ def _mesaj_sayfasi_olustur(kullanici: dict, stack_ref,
                 u = filtre[i]
                 btn.setText(f"🟢  {u['full_name'][:15]}\n     {ROL_ETIKET.get(u['role'],u['role'])}")
                 _i = u["id"]; _n = u["full_name"]
-                try: btn.clicked.disconnect()
-                except Exception: pass  # İlk bağlanmada normal
+                import contextlib
+                with contextlib.suppress(Exception):
+                    btn.clicked.disconnect()
                 btn.clicked.connect(lambda checked=False, i=_i, n=_n: konusmayi_sec(i, n, False))
                 btn.setVisible(True)
             else:
@@ -2104,6 +2063,22 @@ def _mesaj_sayfasi_olustur(kullanici: dict, stack_ref,
             try:
                 toplu_mesaj_sil(list(state["secili_ids"]), uid, uname, urole)
             except Exception: pass
+            # Kalan mesaj kontrolü
+            try:
+                kalan = konusma_gecmisi(uid, state["secili_id"])
+            except Exception:
+                kalan = []
+            if not kalan and state["secili_id"] is not None:
+                state["secili_id"] = None
+                state["secili_isim"] = ""
+                konusan_av.setVisible(False)
+                konusan_isim.setText("Bir konuşma seçin")
+                konusan_alt.setText("")
+                sec_mod_btn.setVisible(False)
+                sohbet_sil_btn.setVisible(False)
+                yaz_input.setEnabled(False)
+                gonder_btn.setEnabled(False)
+                dosya_btn.setEnabled(False)
             sec_modu_kapat()
             konusma_listesini_yukle()
 
@@ -2222,17 +2197,25 @@ def _mesaj_sayfasi_olustur(kullanici: dict, stack_ref,
         if d.exec() == QDialog.Accepted:
             try: mesaj_sil(mid, uid, uname, urole, ic)
             except Exception: pass
-            mesajlari_yukle()
-            konusma_listesini_yukle()
-            # Eğer görüntülenen konuşmada mesaj kalmadıysa listeyi temizle
+            # Önce kalan mesajları kontrol et
             try:
                 kalan = konusma_gecmisi(uid, state["secili_id"])
-                if not kalan and state["secili_id"] is not None:
-                    state["secili_id"] = None
-                    state["secili_isim"] = ""
-                    konusma_listesini_yukle()
             except Exception:
-                pass
+                kalan = []
+            # Mesaj kalmadıysa konuşmayı kapat
+            if not kalan and state["secili_id"] is not None:
+                state["secili_id"] = None
+                state["secili_isim"] = ""
+                konusan_av.setVisible(False)
+                konusan_isim.setText("Bir konuşma seçin")
+                konusan_alt.setText("")
+                sec_mod_btn.setVisible(False)
+                sohbet_sil_btn.setVisible(False)
+                yaz_input.setEnabled(False)
+                gonder_btn.setEnabled(False)
+                dosya_btn.setEnabled(False)
+            mesajlari_yukle()
+            konusma_listesini_yukle()
 
     # Buton bağlantıları
     sec_mod_btn.clicked.connect(sec_modu_ac)
@@ -2417,12 +2400,12 @@ def _tablo_olustur() -> QTableWidget:
     t.setAlternatingRowColors(False)
     t.setShowGrid(True)
     t.setWordWrap(False)
-    # Responsive sütun modu: son sütun esner, diğerleri içeriğe göre
-    t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+    # Sabit sütun modu — ResizeToContents 1500+ satırda çok yavaş
+    t.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
     t.horizontalHeader().setStretchLastSection(True)
-    t.horizontalHeader().setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    t.horizontalHeader().setDefaultAlignment(Qt.AlignCenter | Qt.AlignVCenter)
     t.verticalHeader().setVisible(False)
-    t.verticalHeader().setDefaultSectionSize(42)
+    t.verticalHeader().setDefaultSectionSize(40)
     t.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
     t.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
     t.setFocusPolicy(Qt.NoFocus)
@@ -2940,6 +2923,9 @@ class YeniDosyaDialog(QDialog):
         # ── İlçe — sabit dropdown ──
         self.ilce_cb = QComboBox()
         self.ilce_cb.setFixedHeight(42)
+        self.ilce_cb.setEditable(False)
+        self.ilce_cb.setFocusPolicy(Qt.StrongFocus)
+        self.ilce_cb.view().setMinimumWidth(200)
         self.ilce_cb.addItem("— İlçe seçin —", "")
         for ilce in ILCE_LISTESI:
             self.ilce_cb.addItem(ilce, ilce)
@@ -2947,6 +2933,9 @@ class YeniDosyaDialog(QDialog):
         # ── Müdürlük — sabit dropdown ──
         self.sefligi = QComboBox()
         self.sefligi.setFixedHeight(42)
+        self.sefligi.setEditable(False)
+        self.sefligi.setFocusPolicy(Qt.StrongFocus)
+        self.sefligi.view().setMinimumWidth(320)
         self.sefligi.addItem("— Müdürlük seçin —", "")
         for mud in MUDÜRLUK_LISTESI:
             self.sefligi.addItem(mud, mud)
@@ -2969,7 +2958,16 @@ class YeniDosyaDialog(QDialog):
         self._teslim_cb.setEditable(True)
         self._teslim_cb.setInsertPolicy(QComboBox.NoInsert)
         self._teslim_cb.setFixedHeight(42)
-        self._teslim_cb.lineEdit().setPlaceholderText("Kullanıcı seç veya isim yaz...")
+        self._teslim_cb.setFocusPolicy(Qt.StrongFocus)
+        self._teslim_cb.view().setMinimumWidth(280)
+        le = self._teslim_cb.lineEdit()
+        le.setPlaceholderText("Kullanıcı seç veya isim yaz...")
+        le.setReadOnly(False)
+        # Tıklayınca listeyi aç
+        le.mousePressEvent = lambda e: (
+            self._teslim_cb.showPopup(),
+            type(le).mousePressEvent(le, e)
+        )
         self._teslim_cb.addItem("— Kullanıcı seç —", None)
         for k in tum_kullanicilari_getir():
             if k["active"] and k["role"] != "admin":
@@ -2999,8 +2997,8 @@ class YeniDosyaDialog(QDialog):
         for etiket, widget in [
             ("DOSYA NO *",              self.dosya_no),
             ("İLÇE *",                  self.ilce_cb),
-            ("MÜDÜRLÜK *",               self.sefligi),
-            ("ADA / PARSEL",            ada_w),
+            ("MÜDÜRLÜK *",              self.sefligi),
+            ("ADA / PARSEL *",          ada_w),
             ("TESLİM ALAN PERSONEL *",  self._teslim_cb),
             ("ARŞİV GÖREVLİSİ *",      self.arsiv_gor),
             ("TESLİM TARİHİ",           self.teslim_tarihi),
@@ -3034,6 +3032,12 @@ class YeniDosyaDialog(QDialog):
                 raise ValueError(f"Dosya numarası yalnızca rakam olmalı.\nGirilen: '{d}'")
             if not ilce:
                 raise ValueError("İlçe seçmediniz.")
+            if not s:
+                raise ValueError("Müdürlük seçmediniz.")
+            if not ada:
+                raise ValueError("Ada numarası zorunludur.")
+            if not parsel:
+                raise ValueError("Parsel numarası zorunludur.")
             if not t:
                 raise ValueError("Teslim alan personeli seçin veya yazın.")
             if not a:
@@ -3050,8 +3054,17 @@ class YeniDosyaDialog(QDialog):
             if self._secili_user_id:
                 movement_user_id_guncelle(fid, self._secili_user_id)
 
-            # Otomatik Excel yedeği
-            otomatik_excel_yedek()
+            # Excel'e yeni satır ekle
+            excel_satir_ekle({
+                "dosya_no":        d,
+                "ilce":            ilce,
+                "sefligi":         s,
+                "ada":             ada,
+                "parsel":          parsel,
+                "teslim_alan":     t,
+                "arsiv_gorevlisi": a,
+                "teslim_tarihi":   self.teslim_tarihi.date().toString("dd.MM.yyyy"),
+            })
 
             QMessageBox.information(
                 self, "Kaydedildi ✓",
@@ -3318,7 +3331,7 @@ class GecmisDialog(QDialog):
                 if ci == 2 and acik:   # Teslim alan — bold
                     f = QFont(); f.setBold(True); item.setFont(f)
                 table.setItem(ri, ci, item)
-        table.resizeRowsToContents()
+        # satır yüksekliği setDefaultSectionSize ile ayarlı
         lay.addWidget(table)
 
         if gecmis:
@@ -3600,6 +3613,10 @@ class MainWindow(QMainWindow):
         self._uzerimdeki_sayfa = self._sayfa_uzerimdeki()
         self._stack.addWidget(self._uzerimdeki_sayfa)
 
+        # En Çok Bekleyenler sayfası (index 7)
+        self._bekleyen_sayfa = self._sayfa_bekleyenler()
+        self._stack.addWidget(self._bekleyen_sayfa)
+
         # Mesaj sayfası
         self._mesaj_sayfa, self._mesaj_guncelle = _mesaj_sayfasi_olustur(
             self.kullanici, self._stack, self._nav_btns, self._badge_ref
@@ -3626,20 +3643,20 @@ class MainWindow(QMainWindow):
         logo_lay.setSpacing(10)
 
         logo_ikon = QLabel("🗂")
-        logo_ikon.setFixedSize(36, 36)
+        logo_ikon.setFixedSize(38, 38)
         logo_ikon.setAlignment(Qt.AlignCenter)
         logo_ikon.setStyleSheet(f"""
-            background: rgba(37,99,235,0.25);
-            border: 1.5px solid rgba(37,99,235,0.4);
-            border-radius: 10px;
+            background: rgba(26,111,191,0.30);
+            border: 1px solid rgba(26,111,191,0.50);
+            border-radius: 8px;
             font-size: 18px;
         """)
         logo_txt = QVBoxLayout()
-        logo_txt.setSpacing(0)
+        logo_txt.setSpacing(1)
         app_name = QLabel("Arşiv Takip")
-        app_name.setStyleSheet("color: white; font-size: 14px; font-weight: 800;")
-        ver_lbl = QLabel(APP_VERSIYON)
-        ver_lbl.setStyleSheet(f"color: {P['navy_text']}; font-size: 10px;")
+        app_name.setStyleSheet("color: #EDF2F7; font-size: 14px; font-weight: 700; letter-spacing: 0.3px;")
+        ver_lbl = QLabel(f"Sistem  {APP_VERSIYON}")
+        ver_lbl.setStyleSheet(f"color: {P['navy_text']}; font-size: 10px; letter-spacing: 0.5px;")
         logo_txt.addWidget(app_name)
         logo_txt.addWidget(ver_lbl)
 
@@ -3676,13 +3693,14 @@ class MainWindow(QMainWindow):
                 ("📋", "Loglar",       4),
             ]
 
-        # Mesajlar stack index 6, Üzerimdekiler stack index 5
-        self._mesaj_sayfa_idx = 6
-        # Üzerimdekiler (index 5 — stack sırasıyla eşleşiyor)
-        self._uzerimdeki_idx = 5
+        # Stack sırası: 5=Üzerimdekiler, 6=Bekleyenler, 7=Mesajlar
+        self._mesaj_sayfa_idx = 7
+        self._uzerimdeki_idx  = 5
+        self._bekleyen_idx    = 6
         navlar_final = list(navlar)
-        navlar_final.append(("📌", "Üzerimdekiler", 5))
-        navlar_final.append(("💬", "Mesajlar", 6))
+        navlar_final.append(("📌", "Üzerimdekiler",   5))
+        navlar_final.append(("⚠️", "En Çok Bekleyen", 6))
+        navlar_final.append(("💬", "Mesajlar",         7))
 
         for ikon, metin, stack_idx in navlar_final:
             btn = NavButon(ikon, metin)
@@ -3731,9 +3749,9 @@ class MainWindow(QMainWindow):
         user_frame = QFrame()
         user_frame.setStyleSheet(f"""
             QFrame {{
-                background: rgba(255,255,255,0.05);
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 12px;
+                background: rgba(26,111,191,0.12);
+                border: 1px solid rgba(26,111,191,0.25);
+                border-radius: 8px;
             }}
         """)
         user_lay = QHBoxLayout(user_frame)
@@ -3747,8 +3765,8 @@ class MainWindow(QMainWindow):
         avatar.setStyleSheet(f"""
             background: {P['navy_active']};
             color: white;
-            border-radius: 10px;
-            font-size: 15px;
+            border-radius: 6px;
+            font-size: 14px;
             font-weight: 700;
         """)
 
@@ -3828,6 +3846,8 @@ class MainWindow(QMainWindow):
             self._dashboard_guncelle()
             self._tablo_goster(self._data)
             self._uzerimdeki_guncelle()
+            try: self._bekleyen_guncelle()
+            except Exception: pass
             if hasattr(self, '_hos_lbl'):
                 self._selamlama_guncelle()
             if hasattr(self, '_mesaj_log_table'):
@@ -3872,7 +3892,7 @@ class MainWindow(QMainWindow):
         self._banner.setAlignment(Qt.AlignCenter)
         self._banner.setStyleSheet(f"""
             background:{P['red_bg']}; color:{P['red_t']};
-            border:1.5px solid #FECACA; border-radius:10px;
+            border:1px solid #F5B7B1; border-radius:6px;
             padding:12px 20px; font-size:13px; font-weight:600;
         """)
         ana.addWidget(self._banner)
@@ -3895,29 +3915,28 @@ class MainWindow(QMainWindow):
         # ── ANA İÇERİK: 3 kolon ──────────────────────────────────
         icerik = QHBoxLayout(); icerik.setSpacing(12)
 
-        # SOL: Hızlı eylemler + Aktivite akışı
+        # SOL: Hızlı eylemler
         sol_lay = QVBoxLayout(); sol_lay.setSpacing(10)
         sol_lay.addWidget(self._hizli_eylem_karti())
-        sol_lay.addWidget(self._aktivite_akisi_karti(), stretch=1)
+        sol_lay.addStretch()
         sol_w = QWidget(); sol_w.setStyleSheet("background:transparent;")
         sol_w.setLayout(sol_lay)
-        sol_w.setMinimumWidth(210); sol_w.setMaximumWidth(280)
+        sol_w.setMinimumWidth(200); sol_w.setMaximumWidth(240)
         icerik.addWidget(sol_w, stretch=2)
 
-        # ORTA: Trend grafiği + Gecikmiş tablo
+        # ORTA: Trend + Son Hareketler (detaylı)
         orta_lay = QVBoxLayout(); orta_lay.setSpacing(10)
         orta_lay.addWidget(self._trend_grafiği_karti())
-        orta_lay.addWidget(self._gecmis_tablo_karti(), stretch=1)
+        orta_lay.addWidget(self._aktivite_akisi_karti(), stretch=1)
         icerik.addWidget(self._orta_widget(orta_lay), stretch=5)
 
-        # SAĞ: Donut + Personel + Sistem
+        # SAĞ: Personel + Sistem
         sag_lay = QVBoxLayout(); sag_lay.setSpacing(10)
-        sag_lay.addWidget(self._mini_donut_karti())
         sag_lay.addWidget(self._personel_ozet_karti(), stretch=1)
         sag_lay.addWidget(self._sistem_bilgi_karti())
         sag_w = QWidget(); sag_w.setStyleSheet("background:transparent;")
         sag_w.setLayout(sag_lay)
-        sag_w.setMinimumWidth(200); sag_w.setMaximumWidth(290)
+        sag_w.setMinimumWidth(190); sag_w.setMaximumWidth(250)
         icerik.addWidget(sag_w, stretch=2)
 
         ana.addLayout(icerik, stretch=1)
@@ -3932,7 +3951,7 @@ class MainWindow(QMainWindow):
         frame.setStyleSheet(f"""
             QFrame {{
                 background:{P['surface']}; border:1px solid {P['border']};
-                border-radius:14px;
+                border-radius:8px;
             }}
         """)
         lay = QVBoxLayout(frame)
@@ -3967,8 +3986,24 @@ class MainWindow(QMainWindow):
             eylemler.append(("📥  Arşive Gönderilmiş", self._gonderilenleri_goster, False))
         for metin, slot, primary in eylemler:
             btn = QPushButton(metin)
-            if not primary: btn.setObjectName("ghost")
-            btn.setFixedHeight(36); btn.clicked.connect(slot)
+            btn.setFixedHeight(34)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    text-align: left;
+                    padding-left: 12px;
+                    font-size: 12px;
+                    font-weight: {"700" if primary else "500"};
+                    background: {P["blue"] if primary else P["surface"]};
+                    color: {"white" if primary else P["txt2"]};
+                    border: {"none" if primary else f"1px solid {P['border']}"};
+                    border-radius: 8px;
+                }}
+                QPushButton:hover {{
+                    background: {P["blue2"] if primary else P["bg"]};
+                    color: {"white" if primary else P["txt"]};
+                }}
+            """)
+            btn.clicked.connect(slot)
             lay.addWidget(btn)
         lay.addStretch()
         return frame
@@ -3998,16 +4033,27 @@ class MainWindow(QMainWindow):
 
     def _aktivite_akisi_karti(self):
         frame, lay = self._kart_cerceve("Son Hareketler", "🔄")
-        self._aktivite_lay = lay
+        # Scroll area içine koy — çok hareket varsa kayar
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background:transparent; border:none; }")
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        ic_w = QWidget()
+        ic_w.setStyleSheet("background:transparent;")
+        self._aktivite_lay = QVBoxLayout(ic_w)
+        self._aktivite_lay.setContentsMargins(0, 0, 4, 0)
+        self._aktivite_lay.setSpacing(6)
+        self._aktivite_lay.addStretch()
         self._aktivite_itemler = []
-        lay.addStretch()
+        scroll.setWidget(ic_w)
+        lay.addWidget(scroll)
         return frame
 
     def _trend_grafiği_karti(self):
-        frame, lay = self._kart_cerceve("Son 30 Gün Trend", "📈")
+        frame, lay = self._kart_cerceve("Son 10 Gün Trend", "📈")
         self._trend_widget = TrendGrafikWidget()
-        self._trend_widget.setMinimumHeight(120)
-        self._trend_widget.setMaximumHeight(140)
+        self._trend_widget.setMinimumHeight(130)
+        self._trend_widget.setMaximumHeight(160)
         lay.addWidget(self._trend_widget)
         return frame
 
@@ -4055,38 +4101,192 @@ class MainWindow(QMainWindow):
             }}
         """)
         lay = QVBoxLayout(frame)
-        lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(8)
+        lay.setContentsMargins(14, 12, 14, 12); lay.setSpacing(6)
         b = QLabel("📊  Durum Dağılımı")
         b.setStyleSheet(f"font-size:12px; font-weight:700; color:{P['txt2']};")
         sep = QFrame(); sep.setFixedHeight(1)
         sep.setStyleSheet(f"background:{P['border']}; border:none;")
         lay.addWidget(b); lay.addWidget(sep)
+        # Ring kart (donut) — büyük ve net
         self._mini_ring = RingKarti("")
         self._mini_ring.setStyleSheet("background:transparent; border:none;")
-        self._mini_ring.setMinimumHeight(160)
+        self._mini_ring.setMinimumHeight(130)
+        self._mini_ring.setMaximumHeight(150)
         lay.addWidget(self._mini_ring)
+        # Alt açıklama satırları
+        self._durum_legend = QWidget()
+        self._durum_legend.setStyleSheet("background:transparent;")
+        legend_lay = QVBoxLayout(self._durum_legend)
+        legend_lay.setContentsMargins(0,0,0,0); legend_lay.setSpacing(4)
+        self._legend_satirlar = []
+        for renk, etiket in [("#059669","Arşivde"), ("#2563EB","Zimmette"), ("#DC2626","Gecikmiş")]:
+            row = QHBoxLayout(); row.setSpacing(6)
+            dot = QFrame(); dot.setFixedSize(10,10)
+            dot.setStyleSheet(f"background:{renk}; border-radius:5px;")
+            lbl = QLabel(etiket); lbl.setStyleSheet(f"font-size:11px; color:{P['txt3']}; background:transparent;")
+            val = QLabel("—"); val.setStyleSheet(f"font-size:11px; font-weight:700; color:{P['txt2']}; background:transparent;")
+            row.addWidget(dot); row.addWidget(lbl); row.addStretch(); row.addWidget(val)
+            legend_lay.addLayout(row)
+            self._legend_satirlar.append(val)
+        lay.addWidget(self._durum_legend)
         return frame
 
     def _personel_ozet_karti(self):
-        frame, lay = self._kart_cerceve("👤  En Yoğun Personel", "")
+        frame, lay = self._kart_cerceve("📂  En Çok Dosyası Olan Personel", "")
         self._personel_ozet_lay = lay
         self._personel_ozet_itemler = []
         lay.addStretch()
         return frame
 
+
+    def _sekmeli_orta_karti(self):
+        """En Çok Bekleyen ve Son Hareketler sekmeli tek kartta."""
+        frame = QFrame()
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background:{P['surface']}; border:1px solid {P['border']};
+                border-radius:14px;
+            }}
+        """)
+        fl = QVBoxLayout(frame); fl.setContentsMargins(0,0,0,0); fl.setSpacing(0)
+
+        # Sekme bar
+        tab_bar = QFrame()
+        tab_bar.setStyleSheet(f"background:{P['surface2']}; border-radius:14px 14px 0 0; border-bottom:1px solid {P['border']};")
+        tab_bar.setFixedHeight(40)
+        tb_lay = QHBoxLayout(tab_bar); tb_lay.setContentsMargins(12,0,12,0); tb_lay.setSpacing(0)
+
+        self._tab_bekleyen_btn = QPushButton("⚠️  En Çok Bekleyen")
+        self._tab_hareket_btn  = QPushButton("🔄  Son Hareketler")
+
+        aktif_stil = f"""
+            QPushButton {{
+                background:{P['surface']}; color:{P['blue']};
+                border:none; border-bottom:2px solid {P['blue']};
+                font-size:12px; font-weight:700; padding:0 16px;
+                border-radius:0;
+            }}
+        """
+        pasif_stil = f"""
+            QPushButton {{
+                background:transparent; color:{P['txt3']};
+                border:none; border-bottom:2px solid transparent;
+                font-size:12px; font-weight:500; padding:0 16px;
+                border-radius:0;
+            }}
+            QPushButton:hover {{ color:{P['txt']}; }}
+        """
+        self._tab_bekleyen_btn.setStyleSheet(aktif_stil)
+        self._tab_hareket_btn.setStyleSheet(pasif_stil)
+        self._tab_bekleyen_btn.setFixedHeight(40)
+        self._tab_hareket_btn.setFixedHeight(40)
+
+        tb_lay.addWidget(self._tab_bekleyen_btn)
+        tb_lay.addWidget(self._tab_hareket_btn)
+        tb_lay.addStretch()
+
+        fl.addWidget(tab_bar)
+
+        # İçerik stack
+        from PySide6.QtWidgets import QStackedWidget
+        self._orta_stack = QStackedWidget()
+        self._orta_stack.setStyleSheet("background:transparent;")
+
+        # Sayfa 0: Gecikmiş tablo
+        bekleyen_w = self._gecmis_tablo_karti_ic()
+        self._orta_stack.addWidget(bekleyen_w)
+
+        # Sayfa 1: Aktivite akışı
+        hareket_w = self._aktivite_akisi_ic()
+        self._orta_stack.addWidget(hareket_w)
+
+        fl.addWidget(self._orta_stack, stretch=1)
+
+        def goster_bekleyen():
+            self._orta_stack.setCurrentIndex(0)
+            self._tab_bekleyen_btn.setStyleSheet(aktif_stil)
+            self._tab_hareket_btn.setStyleSheet(pasif_stil)
+
+        def goster_hareket():
+            self._orta_stack.setCurrentIndex(1)
+            self._tab_hareket_btn.setStyleSheet(aktif_stil)
+            self._tab_bekleyen_btn.setStyleSheet(pasif_stil)
+
+        self._tab_bekleyen_btn.clicked.connect(goster_bekleyen)
+        self._tab_hareket_btn.clicked.connect(goster_hareket)
+
+        return frame
+
+    def _gecmis_tablo_karti_ic(self):
+        """Gecikmiş tablo içeriği (stack için)."""
+        w = QWidget(); w.setStyleSheet("background:transparent;")
+        lay = QVBoxLayout(w); lay.setContentsMargins(14,10,14,10); lay.setSpacing(6)
+        ust = QHBoxLayout()
+        hepsi = QPushButton("Tümünü Gör →"); hepsi.setObjectName("flat")
+        hepsi.clicked.connect(lambda: (self._sayfa_degistir(1), self._gecikenleri_goster()))
+        ust.addStretch(); ust.addWidget(hepsi)
+        lay.addLayout(ust)
+        self._dashboard_tablo = _tablo_olustur()
+        self._dashboard_tablo.setColumnCount(5)
+        self._dashboard_tablo.setHorizontalHeaderLabels(
+            ["Dosya No", "İlçe", "Teslim Alan", "Bekleme (g)", "Durum"]
+        )
+        self._dashboard_tablo.verticalHeader().setDefaultSectionSize(36)
+        self._dashboard_tablo.doubleClicked.connect(self._dashboard_cift_tiklama)
+        lay.addWidget(self._dashboard_tablo, stretch=1)
+        ipucu = QLabel("💡 Çift tıklayarak geçmişi görüntüleyin.")
+        ipucu.setStyleSheet(f"font-size:10px; color:{P['txt4']};")
+        lay.addWidget(ipucu)
+        return w
+
+    def _aktivite_akisi_ic(self):
+        """Son hareketler içeriği (stack için)."""
+        w = QWidget(); w.setStyleSheet("background:transparent;")
+        lay = QVBoxLayout(w); lay.setContentsMargins(0,4,0,4); lay.setSpacing(0)
+        self._aktivite_lay = lay
+        self._aktivite_itemler = []
+        lay.addStretch()
+        return w
+
     def _sistem_bilgi_karti(self):
         frame, lay = self._kart_cerceve("ℹ️  Sistem", "")
+        from db import DB_YOLU, AG_KLASORU
+        ag_aktif = bool(AG_KLASORU)
+        ag_renk  = P["green"] if ag_aktif else P["amber"]
+        ag_metin = "Ağ ✓" if ag_aktif else "Yerel"
+
         for etiket, deger in [
-            ("Uygulama", APP_TITLE),
-            ("Versiyon",  APP_VERSIYON),
+            ("Uygulama",   APP_TITLE),
+            ("Versiyon",   APP_VERSIYON),
             ("Geliştirici", APP_SAHIP),
-            ("Destek",    DESTEK_TEL),
+            ("Destek",     DESTEK_TEL),
+            ("Veritabanı", ag_metin),
         ]:
             satir = QHBoxLayout(); satir.setSpacing(4)
-            e = QLabel(etiket); e.setStyleSheet(f"font-size:11px; color:{P['txt4']};"); e.setFixedWidth(70)
-            d = QLabel(deger);  d.setStyleSheet(f"font-size:11px; color:{P['txt2']}; font-weight:600;"); d.setWordWrap(True)
+            e = QLabel(etiket)
+            e.setStyleSheet(f"font-size:11px; color:{P['txt4']};"); e.setFixedWidth(80)
+            if etiket == "Veritabanı":
+                d = QLabel(deger)
+                d.setStyleSheet(
+                    f"font-size:11px; color:{ag_renk}; font-weight:700;"
+                )
+            else:
+                d = QLabel(deger)
+                d.setStyleSheet(
+                    f"font-size:11px; color:{P['txt2']}; font-weight:600;"
+                )
+                d.setWordWrap(True)
             satir.addWidget(e); satir.addWidget(d)
             lay.addLayout(satir)
+
+        if not ag_aktif:
+            uyari = QLabel("⚠ Ağ klasörü ayarlanmamış")
+            uyari.setStyleSheet(
+                f"font-size:10px; color:{P['amber']}; padding-top:4px;"
+            )
+            uyari.setWordWrap(True)
+            lay.addWidget(uyari)
+
         lay.addStretch()
         return frame
 
@@ -4102,42 +4302,34 @@ class MainWindow(QMainWindow):
             GecmisDialog(s["file_id"], s["orijinal_dosya_no"]).exec()
 
     def _dashboard_guncelle(self):
-        # ── Gecikmiş tablo
-        geciken = sorted(
-            [r for r in self._data if "GEC" in (r.get("durum") or "").upper()],
-            key=lambda x: x["bekleme_gun"], reverse=True,
-        )[:12]
-        t = self._dashboard_tablo
-        t.setRowCount(len(geciken))
-        for ri, satir in enumerate(geciken):
-            gun = satir.get("bekleme_gun", 0)
-            vals = [
-                satir.get("orijinal_dosya_no", ""),
-                satir.get("ilce", ""),
-                satir.get("teslim_alan_personel", ""),
-                str(gun),
-                satir.get("durum", ""),
-            ]
-            for ci, v in enumerate(vals):
-                item = QTableWidgetItem(v)
-                item.setTextAlignment(Qt.AlignCenter)
-                item.setBackground(QColor(P["row_red"]))
-                if ci == 3:
-                    f = QFont(); f.setBold(True); item.setFont(f)
-                    item.setForeground(QColor(P["red"]))
-                if ci == 4:
-                    f2 = QFont(); f2.setBold(True); item.setFont(f2)
-                    item.setForeground(QColor(P["red_t"]))
-                t.setItem(ri, ci, item)
-        t.resizeRowsToContents()
-
-        # ── Mini donut
-        oz = istatistik_ozet()
-        self._mini_ring.set_data([
-            (oz["arsivde"],  "#059669", "Arşivde"),
-            (oz["zimmette"], "#2563EB", "Zimmette"),
-            (oz["gecikmis"], "#DC2626", "Gecikmiş"),
-        ], merkez=f"{oz['toplam']}\ntoplam")
+        # ── Gecikmiş tablo (varsa)
+        if hasattr(self, '_dashboard_tablo'):
+            geciken = sorted(
+                [r for r in self._data if "GEC" in (r.get("durum") or "").upper()],
+                key=lambda x: x["bekleme_gun"], reverse=True,
+            )[:12]
+            t = self._dashboard_tablo
+            t.setRowCount(len(geciken))
+            for ri, satir in enumerate(geciken):
+                gun = satir.get("bekleme_gun", 0)
+                vals = [
+                    satir.get("orijinal_dosya_no", ""),
+                    satir.get("ilce", ""),
+                    satir.get("teslim_alan_personel", ""),
+                    str(gun),
+                    satir.get("durum", ""),
+                ]
+                for ci, v in enumerate(vals):
+                    item = QTableWidgetItem(v)
+                    item.setTextAlignment(Qt.AlignCenter)
+                    item.setBackground(QColor(P["row_red"]))
+                    if ci == 3:
+                        f = QFont(); f.setBold(True); item.setFont(f)
+                        item.setForeground(QColor(P["red"]))
+                    if ci == 4:
+                        f2 = QFont(); f2.setBold(True); item.setFont(f2)
+                        item.setForeground(QColor(P["red_t"]))
+                    t.setItem(ri, ci, item)
 
         # ── Özet kartları (gelişmiş)
         try:
@@ -4149,7 +4341,7 @@ class MainWindow(QMainWindow):
 
         # ── Trend grafiği
         try:
-            trend = trend_verisi_getir(30)
+            trend = trend_verisi_getir(10)
             self._trend_widget.set_data(trend)
         except Exception:
             pass
@@ -4172,23 +4364,27 @@ class MainWindow(QMainWindow):
             if last and last.spacerItem():
                 lay.takeAt(lay.count()-1)
         per  = personel_bazli_istatistik()[:5]
-        maks = max((r["zimmette"] for r in per), default=1)
+        # Toplam dosya = zimmette + gecikmis
+        for r in per:
+            r["toplam"] = r.get("zimmette", 0) + r.get("gecikmis", 0)
+        maks = max((r["toplam"] for r in per), default=1)
         for r in per:
             sw = QWidget(); sw.setStyleSheet("background:transparent;")
-            sl = QVBoxLayout(sw); sl.setContentsMargins(0,2,0,2); sl.setSpacing(3)
+            sl = QVBoxLayout(sw); sl.setContentsMargins(0,3,0,3); sl.setSpacing(3)
             ust = QHBoxLayout(); ust.setSpacing(4)
-            nm = QLabel(r["personel"][:18]); nm.setStyleSheet(f"font-size:12px; font-weight:600; color:{P['txt2']};")
-            sz = QLabel(f"{r['zimmette']} dosya"); sz.setStyleSheet(f"font-size:11px; color:{P['txt4']};")
+            nm = QLabel(r["personel"][:16])
+            nm.setStyleSheet(f"font-size:12px; font-weight:600; color:{P['txt2']}; background:transparent;")
+            sz = QLabel(f"{r['toplam']} dosya")
+            sz.setStyleSheet(f"font-size:11px; color:{P['txt4']}; background:transparent;")
             ust.addWidget(nm); ust.addStretch(); ust.addWidget(sz)
             sl.addLayout(ust)
-            bar = MiniBarWidget(r["zimmette"], maks, P["red"] if r["gecikmis"]>0 else P["blue"])
-            bar.setFixedHeight(6); sl.addWidget(bar)
+            bar = MiniBarWidget(r["toplam"], maks, P["red"] if r["gecikmis"]>0 else P["blue"])
+            bar.setFixedHeight(5); sl.addWidget(bar)
             lay.addWidget(sw)
             self._personel_ozet_itemler.append(sw)
         lay.addStretch()
 
     def _aktivite_guncelle(self, hareketler):
-        # Eski item'ları temizle
         for w in self._aktivite_itemler:
             try: w.setParent(None)
             except RuntimeError: pass
@@ -4201,30 +4397,74 @@ class MainWindow(QMainWindow):
 
         for h in hareketler:
             islem = h.get("islem", "ZİMMET")
-            renk  = P["blue"] if islem == "ZİMMET" else P["green"]
-            bg    = P["blue_bg"] if islem == "ZİMMET" else "#EAF3DE"
+            if islem == "ZİMMET":
+                renk = P["blue"]; bg = P["blue_bg"]
+                islem_txt = "ZİMMET"; islem_ikon = "📋"
+            else:
+                renk = P["green"]; bg = P["green_bg"]
+                islem_txt = "ARŞİVE AL"; islem_ikon = "✅"
 
-            sw = QWidget(); sw.setStyleSheet("background:transparent;")
-            sl = QHBoxLayout(sw); sl.setContentsMargins(0,3,0,3); sl.setSpacing(8)
-
-            # İşlem rozeti
-            badge = QLabel(islem[:3])
-            badge.setFixedWidth(36)
-            badge.setAlignment(Qt.AlignCenter)
-            badge.setStyleSheet(f"""
-                background:{bg}; color:{renk};
-                border-radius:5px; font-size:9px; font-weight:700; padding:2px 0;
+            sw = QWidget()
+            sw.setStyleSheet(f"""
+                QWidget {{
+                    background:{P['surface2']};
+                    border:1px solid {P['border']};
+                    border-radius:10px;
+                }}
             """)
+            sw.setFixedHeight(58)
+            sl = QHBoxLayout(sw); sl.setContentsMargins(10,6,10,6); sl.setSpacing(10)
 
-            # Bilgi
-            ic = QVBoxLayout(); ic.setSpacing(0)
-            dosya_lbl = QLabel(h.get("dosya_no","")[:14])
-            dosya_lbl.setStyleSheet(f"font-size:11px; font-weight:700; color:{P['txt2']};")
-            per_lbl = QLabel(f"{h.get('teslim_alan_personel','')[:12]}  ·  {h.get('ilce','')[:8]}")
-            per_lbl.setStyleSheet(f"font-size:10px; color:{P['txt4']};")
-            ic.addWidget(dosya_lbl); ic.addWidget(per_lbl)
+            # Rozet
+            badge = QLabel(islem_ikon)
+            badge.setFixedSize(36, 36)
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setStyleSheet(
+                f"background:{bg}; border-radius:8px; font-size:18px; border:none;"
+            )
+            sl.addWidget(badge)
 
-            sl.addWidget(badge); sl.addLayout(ic); sl.addStretch()
+            # Orta — dosya + detay
+            ic = QVBoxLayout(); ic.setSpacing(1)
+            dosya_lbl = QLabel(h.get("dosya_no",""))
+            dosya_lbl.setStyleSheet(
+                f"color:{P['txt']}; font-size:12px; font-weight:700; background:transparent; border:none;"
+            )
+            detay = []
+            if islem == "ZİMMET":
+                kisi = h.get("teslim_alan_personel","")
+                arv  = h.get("veren_arsiv_gorevlisi","")
+                if kisi: detay.append(f"→ {kisi}")
+                if arv:  detay.append(f"Arşiv: {arv}")
+            else:
+                kisi = h.get("iade_alan_gorevli","")
+                if kisi: detay.append(f"Alan: {kisi}")
+            ilce = h.get("ilce","")
+            if ilce: detay.append(ilce)
+            detay_lbl = QLabel("  ·  ".join(detay) if detay else "—")
+            detay_lbl.setStyleSheet(
+                f"color:{P['txt3']}; font-size:10px; background:transparent; border:none;"
+            )
+            ic.addWidget(dosya_lbl); ic.addWidget(detay_lbl)
+            sl.addLayout(ic, stretch=1)
+
+            # Sağ — işlem + tarih
+            sag = QVBoxLayout(); sag.setSpacing(1)
+            islem_lbl = QLabel(islem_txt)
+            islem_lbl.setStyleSheet(
+                f"color:{renk}; font-size:10px; font-weight:700; background:transparent; border:none;"
+            )
+            islem_lbl.setAlignment(Qt.AlignRight)
+            tarih_raw = h.get("teslim_tarihi","") if islem=="ZİMMET" else h.get("iade_tarihi","")
+            tarih = str(tarih_raw)[-5:] if tarih_raw else ""
+            tarih_lbl = QLabel(tarih)
+            tarih_lbl.setStyleSheet(
+                f"color:{P['txt4']}; font-size:10px; background:transparent; border:none;"
+            )
+            tarih_lbl.setAlignment(Qt.AlignRight)
+            sag.addWidget(islem_lbl); sag.addWidget(tarih_lbl)
+            sl.addLayout(sag)
+
             lay.addWidget(sw)
             self._aktivite_itemler.append(sw)
 
@@ -4252,10 +4492,34 @@ class MainWindow(QMainWindow):
         ))
 
     def koyu_tema_ac(self):
+        P.update({
+            "bg":"#0D1117","surface":"#161B22","surface2":"#1C2128",
+            "border":"#21262D","border2":"#30363D",
+            "txt":"#E2E8F0","txt2":"#C9D1D9","txt3":"#8B949E","txt4":"#6E7681",
+            "blue_bg":"#1F2D40","blue_t":"#60A5FA",
+            "green_bg":"#0A2A1A","green_t":"#34D399",
+            "red_bg":"#2D0A0A","red_t":"#F87171",
+            "amber_bg":"#2A1A00","amber_t":"#FCD34D",
+            "row_red":"#2D0A0A","row_yellow":"#2A1800","row_white":"#161B22",
+        })
         QApplication.instance().setStyleSheet(KOYU_STIL)
+        for i in range(self._stack.count()):
+            w = self._stack.widget(i)
+            if w: w.setStyleSheet("background:#0D1117;")
+        self.centralWidget().setStyleSheet("background:#0D1117;")
+        self.update()
 
     def acik_tema_ac(self):
+        P.update(P_ACIK)
         QApplication.instance().setStyleSheet(ANA_STIL)
+        for i in range(self._stack.count()):
+            w = self._stack.widget(i)
+            if w: w.setStyleSheet(f"background:{P['bg']};")
+        self.centralWidget().setStyleSheet(f"background:{P['bg']};")
+        self.update()
+
+    def _yenile_widget_stilleri(self):
+        pass  # artık koyu/acik_tema_ac içinde hallediliyor
 
     def _status_bar(self):
         sb = self.statusBar()
@@ -4331,6 +4595,88 @@ class MainWindow(QMainWindow):
             filtre.addWidget(yeni_btn)
 
         ana.addLayout(filtre)
+
+        # ── Admin toplu işlem toolbar ─────────────────────────────────
+        if self.kullanici["role"] in ("admin", "arsiv"):
+            self._toplu_bar = QFrame()
+            self._toplu_bar.setStyleSheet(f"""
+                QFrame {{
+                    background:{P['red_bg']};
+                    border:1.5px solid #FECACA;
+                    border-radius:12px;
+                }}
+            """)
+            tb_lay = QHBoxLayout(self._toplu_bar)
+            tb_lay.setContentsMargins(16, 8, 16, 8)
+            tb_lay.setSpacing(10)
+
+            # Checkbox — tümünü seç
+            self._toplu_hepsini_sec = QCheckBox("Tümünü Seç")
+            self._toplu_hepsini_sec.setStyleSheet(f"font-size:13px; font-weight:600; color:{P['red_t']};")
+            self._toplu_hepsini_sec.stateChanged.connect(self._toplu_hepsini_sec_toggle)
+
+            self._toplu_secilen_lbl = QLabel("0 dosya seçildi")
+            self._toplu_secilen_lbl.setStyleSheet(f"font-size:13px; color:{P['red_t']}; font-weight:600;")
+
+            toplu_sil_btn = QPushButton("🗑  Seçilenleri Sil")
+            toplu_sil_btn.setFixedHeight(36)
+            toplu_sil_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background:{P['red']}; color:white;
+                    border:none; border-radius:8px;
+                    font-size:13px; font-weight:700; padding:0 16px;
+                }}
+                QPushButton:hover {{ background:#B91C1C; }}
+            """)
+            toplu_sil_btn.clicked.connect(self._toplu_sil_secilenleri)
+
+            reset_btn = QPushButton("⚠️  Tümünü Sıfırla")
+            reset_btn.setFixedHeight(36)
+            reset_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background:#7F1D1D; color:white;
+                    border:none; border-radius:8px;
+                    font-size:13px; font-weight:700; padding:0 16px;
+                }}
+                QPushButton:hover {{ background:#991B1B; }}
+            """)
+            reset_btn.clicked.connect(self._tum_dosyalari_sifirla)
+
+            iptal_btn = QPushButton("İptal")
+            iptal_btn.setObjectName("ghost"); iptal_btn.setFixedHeight(36)
+            iptal_btn.clicked.connect(self._toplu_mod_kapat)
+
+            tb_lay.addWidget(self._toplu_hepsini_sec)
+            tb_lay.addWidget(self._toplu_secilen_lbl)
+            tb_lay.addStretch()
+            tb_lay.addWidget(toplu_sil_btn)
+            tb_lay.addWidget(reset_btn)
+            tb_lay.addWidget(iptal_btn)
+
+            self._toplu_bar.setVisible(False)
+            ana.addWidget(self._toplu_bar)
+
+            # Toplu işlem aç butonu
+            toplu_mod_btn = QPushButton("☑  Toplu İşlem")
+            toplu_mod_btn.setObjectName("ghost"); toplu_mod_btn.setFixedHeight(38)
+            toplu_mod_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background:{P['red_bg']}; color:{P['red_t']};
+                    border:1.5px solid #FECACA; border-radius:10px;
+                    font-size:12px; font-weight:600; padding:0 14px;
+                }}
+                QPushButton:hover {{ background:#FEE2E2; }}
+            """)
+            toplu_mod_btn.clicked.connect(self._toplu_mod_ac)
+            ust.addWidget(toplu_mod_btn)
+        else:
+            self._toplu_bar = None
+            self._toplu_mod = False
+            self._secili_file_ids = set()
+
+        # ── Toplu mod state ───────────────────────────────────────────
+        self._toplu_mod = False
+        self._secili_file_ids: set[int] = set()
 
         # Tablo
         self._table = _tablo_olustur()
@@ -4570,6 +4916,91 @@ class MainWindow(QMainWindow):
         ana.addWidget(tabs)
         return sayfa
 
+    def _sayfa_bekleyenler(self) -> QWidget:
+        """En çok bekleyen dosyalar tam sayfa."""
+        sayfa = QWidget()
+        sayfa.setStyleSheet(f"background:{P['bg']};")
+        ana = QVBoxLayout(sayfa)
+        ana.setContentsMargins(32, 28, 32, 20)
+        ana.setSpacing(16)
+
+        # Başlık
+        ust = QHBoxLayout()
+        ust.addLayout(_bolum_baslik("⚠️  En Çok Bekleyen Dosyalar", "10 günden fazla teslim edilmemiş dosyalar"))
+        ust.addStretch()
+        yenile = QPushButton("↻  Yenile")
+        yenile.setObjectName("ghost"); yenile.setFixedHeight(36)
+        yenile.clicked.connect(self._bekleyen_guncelle)
+        goster = QPushButton("📂  Dosya Kayıtlarında Gör")
+        goster.setFixedHeight(36)
+        goster.clicked.connect(lambda: (self._sayfa_degistir(1), self._gecikenleri_goster()))
+        ust.addWidget(yenile); ust.addWidget(goster)
+        ana.addLayout(ust)
+
+        # Tablo
+        kart = QFrame()
+        kart.setStyleSheet(f"""
+            QFrame {{
+                background:{P['surface']}; border:1px solid {P['border']};
+                border-radius:16px;
+            }}
+        """)
+        kl = QVBoxLayout(kart); kl.setContentsMargins(20,16,20,16); kl.setSpacing(10)
+
+        self._bekleyen_tablo = _tablo_olustur()
+        self._bekleyen_tablo.setColumnCount(6)
+        self._bekleyen_tablo.setHorizontalHeaderLabels([
+            "Dosya No", "İlçe", "Teslim Alan", "Arşiv Görevlisi",
+            "Teslim Tarihi", "Bekleme (gün)"
+        ])
+        self._bekleyen_tablo.verticalHeader().setDefaultSectionSize(40)
+        self._bekleyen_tablo.doubleClicked.connect(self._bekleyen_gecmis)
+        kl.addWidget(self._bekleyen_tablo)
+        self._bekleyen_bilgi = QLabel("")
+        self._bekleyen_bilgi.setStyleSheet(f"font-size:11px; color:{P['txt4']};")
+        kl.addWidget(self._bekleyen_bilgi)
+        ana.addWidget(kart, stretch=1)
+        return sayfa
+
+    def _bekleyen_guncelle(self):
+        geciken = sorted(
+            [r for r in self._data if "GEC" in (r.get("durum") or "").upper()],
+            key=lambda x: x.get("bekleme_gun", 0), reverse=True,
+        )
+        t = self._bekleyen_tablo
+        t.setUpdatesEnabled(False)
+        t.setRowCount(len(geciken))
+        for ri, r in enumerate(geciken):
+            gun = r.get("bekleme_gun", 0)
+            vals = [
+                r.get("orijinal_dosya_no",""),
+                r.get("ilce",""),
+                r.get("teslim_alan_personel",""),
+                r.get("veren_arsiv_gorevlisi",""),
+                r.get("teslim_tarihi",""),
+                str(gun),
+            ]
+            for ci, v in enumerate(vals):
+                item = QTableWidgetItem(v)
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setBackground(QColor(P["row_red"]))
+                if ci == 5:
+                    f = QFont(); f.setBold(True); item.setFont(f)
+                    item.setForeground(QColor(P["red"]))
+                t.setItem(ri, ci, item)
+        t.setUpdatesEnabled(True)
+        self._bekleyen_bilgi.setText(f"Toplam {len(geciken)} gecikmiş dosya")
+
+    def _bekleyen_gecmis(self):
+        row = self._bekleyen_tablo.currentRow()
+        geciken = sorted(
+            [r for r in self._data if "GEC" in (r.get("durum") or "").upper()],
+            key=lambda x: x.get("bekleme_gun", 0), reverse=True,
+        )
+        if row < len(geciken):
+            s = geciken[row]
+            GecmisDialog(s["file_id"], s["orijinal_dosya_no"]).exec()
+
     def _sayfa_uzerimdeki(self) -> QWidget:
         """Giriş yapan kullanıcının zimmetindeki dosyalar."""
         sayfa = QWidget()
@@ -4634,13 +5065,26 @@ class MainWindow(QMainWindow):
             arsive_al_btn.setStyleSheet(f"""
                 QPushButton {{
                     background:{P['green']}; color:white;
-                    border:none; border-radius:10px;
+                    border:none; border-radius:8px;
                     font-size:13px; font-weight:700; padding:0 16px;
                 }}
                 QPushButton:hover {{ background:#059669; }}
             """)
             arsive_al_btn.clicked.connect(lambda: self._uzerimdeki_arsive_al())
             btn_lay.addWidget(arsive_al_btn)
+
+            iade_btn = QPushButton("↩  Dosyayı İade Et")
+            iade_btn.setFixedHeight(40)
+            iade_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background:{P['amber']}; color:white;
+                    border:none; border-radius:8px;
+                    font-size:13px; font-weight:700; padding:0 16px;
+                }}
+                QPushButton:hover {{ background:#995800; }}
+            """)
+            iade_btn.clicked.connect(lambda: self._uzerimdeki_iade_et())
+            btn_lay.addWidget(iade_btn)
 
             iptal_btn = QPushButton("🔄  Gönderildi İptal")
             iptal_btn.setObjectName("ghost"); iptal_btn.setFixedHeight(40)
@@ -4651,11 +5095,11 @@ class MainWindow(QMainWindow):
             gonder_btn.setFixedHeight(40)
             gonder_btn.setStyleSheet(f"""
                 QPushButton {{
-                    background:{P['amber_bg']}; color:{P['amber_t']};
-                    border:1px solid #FCD34D; border-radius:10px;
+                    background:{P['amber']}; color:white;
+                    border:none; border-radius:8px;
                     font-size:13px; font-weight:600; padding:0 16px;
                 }}
-                QPushButton:hover {{ background:#FEF3C7; }}
+                QPushButton:hover {{ background:#995800; }}
             """)
             gonder_btn.clicked.connect(lambda: self._uzerimdeki_arsive_gonder())
             btn_lay.addWidget(gonder_btn)
@@ -4714,7 +5158,7 @@ class MainWindow(QMainWindow):
                 t.setItem(ri, ci, item)
             t.setRowHeight(ri, 40)
 
-        t.resizeRowsToContents()
+        # satır yüksekliği setDefaultSectionSize ile ayarlı
         # Kartları güncelle
         self._uk_toplam.guncelle(len(dosyalar))
         self._uk_gecikmis.guncelle(gecikmis)
@@ -4760,6 +5204,90 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Uyarı",
                 "Bu dosya zimmetli değil veya zaten gönderilmiş."); return
         self._arsive_gonder_with(s)
+
+    def _uzerimdeki_iade_et(self):
+        """Arşiv görevlisi dosyayı gönderen kullanıcıya iade eder."""
+        s = self._uzerimdeki_secili()
+        if not s:
+            QMessageBox.warning(self, "Uyarı", "Önce tablodan bir dosya seçin."); return
+
+        if s.get("durum") not in ("ZİMMETTE", "GECİKMİŞ", "ARŞİVE GÖNDERİLDİ"):
+            QMessageBox.warning(self, "Uyarı", "Bu dosya zimmetli değil."); return
+
+        # Dialog
+        d = QDialog(self)
+        d.setWindowTitle("Dosyayı İade Et")
+        d.setFixedWidth(440)
+        dl = QVBoxLayout(d); dl.setContentsMargins(28,28,28,24); dl.setSpacing(14)
+
+        ikon = QLabel("↩"); ikon.setAlignment(Qt.AlignCenter)
+        ikon.setStyleSheet("font-size:36px;")
+        baslik = QLabel("Dosyayı İade Et")
+        baslik.setAlignment(Qt.AlignCenter)
+        baslik.setStyleSheet(f"font-size:16px; font-weight:700; color:{P['txt']};")
+
+        dosya_lbl = QLabel(f"<b>{s['orijinal_dosya_no']}</b>  —  {s.get('ilce','')}")
+        dosya_lbl.setAlignment(Qt.AlignCenter)
+        dosya_lbl.setStyleSheet(f"font-size:13px; color:{P['txt3']};")
+
+        bilgi = QLabel("Bu dosya, arşive gönderen kullanıcıya\ntekrar zimmetlenecek.")
+        bilgi.setAlignment(Qt.AlignCenter)
+        bilgi.setStyleSheet(f"font-size:12px; color:{P['txt3']};")
+
+        # Not alanı
+        not_lbl = QLabel("İADE NOTU  *")
+        not_lbl.setStyleSheet(
+            f"font-size:11px; font-weight:700; color:{P['txt4']}; letter-spacing:0.5px;"
+        )
+        not_input = QTextEdit()
+        not_input.setFixedHeight(80)
+        not_input.setPlaceholderText(
+            "Neden iade ediliyor? (örn: Eksik belge, Yanlış dosya, Tamamlanmadı...)"
+        )
+
+        bl = QHBoxLayout(); bl.setSpacing(10)
+        iptal = QPushButton("İptal"); iptal.setFixedHeight(42)
+        iptal.setObjectName("ghost")
+        iptal.clicked.connect(d.reject)
+
+        iade_ok = QPushButton("↩  İade Et"); iade_ok.setFixedHeight(42)
+        iade_ok.setStyleSheet(f"""
+            QPushButton {{
+                background:{P['amber']}; color:white;
+                border:none; border-radius:8px;
+                font-size:14px; font-weight:700;
+            }}
+            QPushButton:hover {{ background:#995800; }}
+        """)
+        iade_ok.clicked.connect(d.accept)
+
+        bl.addWidget(iptal); bl.addWidget(iade_ok)
+        dl.addWidget(ikon); dl.addWidget(baslik); dl.addWidget(dosya_lbl)
+        dl.addWidget(bilgi); dl.addWidget(not_lbl); dl.addWidget(not_input)
+        dl.addLayout(bl)
+
+        if d.exec() == QDialog.Accepted:
+            not_metni = not_input.toPlainText().strip()
+            if not not_metni:
+                QMessageBox.warning(self, "Uyarı", "İade notu zorunludur. Lütfen açıklama yazın.")
+                return
+            try:
+                sonuc = dosya_iade_et(
+                    file_id=s["file_id"],
+                    iade_eden_id=self.kullanici["id"],
+                    iade_eden_isim=self.kullanici["full_name"],
+                    not_metni=not_metni,
+                )
+                self._uzerimdeki_guncelle()
+                self.veriyi_yukle()
+                QMessageBox.information(
+                    self, "İade Edildi ✓",
+                    f"{s['orijinal_dosya_no']} dosyası\n"
+                    f"{sonuc['gonderen_isim']} adlı kullanıcıya iade edildi.\n\n"
+                    f"Kullanıcıya bildirim mesajı gönderildi."
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Hata", str(e))
 
     def _uzerimdeki_arsive_al(self):
         """Arşiv görevlisi üzerimdekilerden arşive al."""
@@ -4824,6 +5352,7 @@ class MainWindow(QMainWindow):
             menu.addSeparator()
             if durum in ("ZİMMETTE","GECİKMİŞ","ARŞİVE GÖNDERİLDİ"):
                 menu.addAction("✅  Arşive Al", self._uzerimdeki_arsive_al)
+                menu.addAction("↩  Dosyayı İade Et", self._uzerimdeki_iade_et)
             if durum == "ARŞİVE GÖNDERİLDİ":
                 menu.addAction("🔄  Gönderildi İptal", self._uzerimdeki_gonder_iptal)
         elif durum in ("ZİMMETTE","GECİKMİŞ"):
@@ -4869,7 +5398,7 @@ class MainWindow(QMainWindow):
                 if ci==2: item.setForeground(QColor(fg)); f=QFont(); f.setBold(True); item.setFont(f)
                 t.setItem(ri,ci,item)
             t.setRowHeight(ri,40)
-        t.resizeRowsToContents()
+        # satır yüksekliği setDefaultSectionSize ile ayarlı
 
     def _ilce_listesi_yukle(self):
         self._ilce_cb.blockSignals(True)
@@ -5109,7 +5638,7 @@ class MainWindow(QMainWindow):
             bar = MiniBarWidget(satir.get("toplam",0), maks_toplam, P["blue"])
             self._ilce_tablo.setCellWidget(ri, 4, bar)
             self._ilce_tablo.setRowHeight(ri, 44)
-        self._ilce_tablo.resizeRowsToContents()
+        # satır yüksekliği setDefaultSectionSize ile ayarlı
 
         # ── Personel detay tablosu
         maks_zim = max((r["zimmette"] for r in per_data), default=1)
@@ -5140,7 +5669,7 @@ class MainWindow(QMainWindow):
             bar = MiniBarWidget(satir.get("zimmette",0), maks_zim, P["red"])
             self._personel_tablo.setCellWidget(ri, 4, bar)
             self._personel_tablo.setRowHeight(ri, 44)
-        self._personel_tablo.resizeRowsToContents()
+        # satır yüksekliği setDefaultSectionSize ile ayarlı
 
     def _admin_sekmeleri_yukle(self):
         if self.kullanici["role"] != "admin":
@@ -5170,7 +5699,7 @@ class MainWindow(QMainWindow):
                 item = QTableWidgetItem("" if v is None else str(v))
                 item.setBackground(bg)
                 table.setItem(ri, ci, item)
-        table.resizeRowsToContents()
+        # satır yüksekliği setDefaultSectionSize ile ayarlı
 
     # ── TABLO GÖSTERİMİ ──────────────────────────────────────
     def _tablo_goster(self, veriler: list[dict]):
@@ -5281,21 +5810,53 @@ class MainWindow(QMainWindow):
         """_filtreli'yi güncellemeden sadece tablo gösterimini yeniler."""
         self._filtreli = veriler
         t = self._table
+
+        # Performans: ekran güncellemesini ve sıralamayı durdur
+        t.setUpdatesEnabled(False)
+        t.setSortingEnabled(False)
+
         t.clearContents()
         t.setRowCount(len(veriler))
-        t.setColumnCount(len(self.KOL))
-        t.setHorizontalHeaderLabels(self.BSL)
+
+        # Toplu mod aktifse ilk kolona checkbox ekle
+        toplu = getattr(self, '_toplu_mod', False)
+        if toplu:
+            t.setColumnCount(len(self.KOL) + 1)
+            t.setHorizontalHeaderLabels(["☑"] + self.BSL)
+            t.setColumnWidth(0, 38)
+        else:
+            t.setColumnCount(len(self.KOL))
+            t.setHorizontalHeaderLabels(self.BSL)
+
+        # Sinyal bağlantısını ÖNCE kes, tablo doldurulurken sinyal tetiklenmesin
+        try:
+            t.itemChanged.disconnect()
+        except Exception:
+            pass
+        t.blockSignals(True)
 
         for ri, satir in enumerate(veriler):
             durum_str = (satir.get("durum") or "").upper()
             if "GEC" in durum_str:
                 satir_bg = QColor(P["row_red"])
             elif "GÖN" in durum_str or "GON" in durum_str:
-                satir_bg = QColor("#FFFBEB")   # amber — arşive gönderildi
+                satir_bg = QColor("#FFFBEB")
             elif "Z" in durum_str and "MM" in durum_str:
                 satir_bg = QColor(P["row_yellow"])
             else:
                 satir_bg = QColor(P["row_white"])
+
+            col_offset = 0
+            if toplu:
+                chk_item = QTableWidgetItem()
+                chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                fid = satir.get("file_id")
+                checked = fid in self._secili_file_ids
+                chk_item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+                chk_item.setBackground(satir_bg)
+                chk_item.setData(Qt.UserRole, fid)
+                t.setItem(ri, 0, chk_item)
+                col_offset = 1
 
             for ci, kol in enumerate(self.KOL):
                 v = satir.get(kol)
@@ -5307,7 +5868,7 @@ class MainWindow(QMainWindow):
                     if "GEC" in durum_str:
                         item.setForeground(QColor(P["red_t"]))
                     elif "GÖN" in durum_str or "GON" in durum_str:
-                        item.setForeground(QColor("#92400E"))  # amber koyu
+                        item.setForeground(QColor("#92400E"))
                     elif "Z" in durum_str and "MM" in durum_str:
                         item.setForeground(QColor(P["blue_t"]))
                     else:
@@ -5320,10 +5881,244 @@ class MainWindow(QMainWindow):
                     if gun >= 10:
                         f2 = QFont(); f2.setBold(True); item.setFont(f2)
                         item.setForeground(QColor(P["red"]))
-                t.setItem(ri, ci, item)
-        t.resizeRowsToContents()
+                t.setItem(ri, ci + col_offset, item)
+
+        # Tablo doldurma bitti — sinyalleri ve güncellemeleri aç
+        t.blockSignals(False)
+        t.setUpdatesEnabled(True)
+
+        # Toplu modda checkbox değişikliklerini yakala
+        if toplu:
+            def _chk_changed(item):
+                if item.column() != 0: return
+                fid = item.data(Qt.UserRole)
+                if fid is not None:
+                    self._toplu_satir_sec(fid, item.checkState() == Qt.Checked)
+            t.itemChanged.connect(_chk_changed)
+
+        # Sabit satır yüksekliği — resizeRowsToContents çok yavaş
+        t.verticalHeader().setDefaultSectionSize(40)
 
 
+
+    # ── TOPLU SİLME MODLARI ─────────────────────────────────────────
+    def _toplu_mod_ac(self):
+        self._toplu_mod = True
+        self._secili_file_ids = set()
+        if self._toplu_bar:
+            self._toplu_bar.setVisible(True)
+        if hasattr(self, '_toplu_hepsini_sec'):
+            self._toplu_hepsini_sec.blockSignals(True)
+            self._toplu_hepsini_sec.setChecked(False)
+            self._toplu_hepsini_sec.blockSignals(False)
+        if hasattr(self, '_toplu_secilen_lbl'):
+            self._toplu_secilen_lbl.setText("0 dosya seçildi")
+
+        # Tabloyu yeniden ÇIZMEDEN checkbox kolonu ekle
+        t = self._table
+        try: t.itemChanged.disconnect()
+        except Exception: pass
+        t.blockSignals(True)
+        t.setUpdatesEnabled(False)
+
+        # Checkbox kolonu yoksa ekle
+        if t.columnCount() == len(self.KOL):
+            t.insertColumn(0)
+            t.setColumnWidth(0, 38)
+            t.setHorizontalHeaderItem(0, QTableWidgetItem("☑"))
+            # Mevcut her satıra checkbox ekle
+            for ri in range(t.rowCount()):
+                chk_item = QTableWidgetItem()
+                chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                chk_item.setCheckState(Qt.Unchecked)
+                if ri < len(self._filtreli):
+                    chk_item.setData(Qt.UserRole, self._filtreli[ri].get("file_id"))
+                t.setItem(ri, 0, chk_item)
+
+        t.blockSignals(False)
+        t.setUpdatesEnabled(True)
+
+        # Checkbox değişikliklerini yakala
+        def _chk_changed(item):
+            if item.column() != 0: return
+            fid = item.data(Qt.UserRole)
+            if fid is not None:
+                self._toplu_satir_sec(fid, item.checkState() == Qt.Checked)
+        t.itemChanged.connect(_chk_changed)
+
+    def _toplu_mod_kapat(self):
+        self._toplu_mod = False
+        self._secili_file_ids = set()
+        if self._toplu_bar:
+            self._toplu_bar.setVisible(False)
+        if hasattr(self, '_toplu_hepsini_sec'):
+            self._toplu_hepsini_sec.blockSignals(True)
+            self._toplu_hepsini_sec.setChecked(False)
+            self._toplu_hepsini_sec.blockSignals(False)
+        if hasattr(self, '_toplu_secilen_lbl'):
+            self._toplu_secilen_lbl.setText("0 dosya seçildi")
+
+        t = self._table
+        try: t.itemChanged.disconnect()
+        except Exception: pass
+        t.blockSignals(True)
+        t.setUpdatesEnabled(False)
+
+        # Checkbox kolonunu kaldır
+        if t.columnCount() == len(self.KOL) + 1:
+            t.removeColumn(0)
+            t.setHorizontalHeaderLabels(self.BSL)
+
+        t.blockSignals(False)
+        t.setUpdatesEnabled(True)
+
+    def _toplu_hepsini_sec_toggle(self, state):
+        t = self._table
+        if state == Qt.Checked:
+            self._secili_file_ids = {r["file_id"] for r in self._filtreli}
+        else:
+            self._secili_file_ids = set()
+        if hasattr(self, '_toplu_secilen_lbl'):
+            self._toplu_secilen_lbl.setText(f"{len(self._secili_file_ids)} dosya seçildi")
+        # Tablo yeniden çizmeden sadece checkbox'ları güncelle
+        try: t.itemChanged.disconnect()
+        except Exception: pass
+        t.blockSignals(True)
+        t.setUpdatesEnabled(False)
+        for ri in range(t.rowCount()):
+            item = t.item(ri, 0)
+            if item:
+                fid = item.data(Qt.UserRole)
+                item.setCheckState(
+                    Qt.Checked if fid in self._secili_file_ids else Qt.Unchecked
+                )
+        t.blockSignals(False)
+        t.setUpdatesEnabled(True)
+        # Sinyali yeniden bağla
+        def _chk_changed(item):
+            if item.column() != 0: return
+            fid = item.data(Qt.UserRole)
+            if fid is not None:
+                self._toplu_satir_sec(fid, item.checkState() == Qt.Checked)
+        t.itemChanged.connect(_chk_changed)
+
+    def _toplu_satir_sec(self, file_id: int, checked: bool):
+        if checked:
+            self._secili_file_ids.add(file_id)
+        else:
+            self._secili_file_ids.discard(file_id)
+        sayi = len(self._secili_file_ids)
+        if hasattr(self, '_toplu_secilen_lbl'):
+            self._toplu_secilen_lbl.setText(f"{sayi} dosya seçildi")
+        if hasattr(self, '_toplu_hepsini_sec'):
+            self._toplu_hepsini_sec.blockSignals(True)
+            if sayi == len(self._filtreli) and sayi > 0:
+                self._toplu_hepsini_sec.setCheckState(Qt.Checked)
+            elif sayi == 0:
+                self._toplu_hepsini_sec.setCheckState(Qt.Unchecked)
+            else:
+                self._toplu_hepsini_sec.setCheckState(Qt.PartiallyChecked)
+            self._toplu_hepsini_sec.blockSignals(False)
+
+    def _toplu_sil_secilenleri(self):
+        if self.kullanici["role"] not in ("admin", "arsiv"):
+            QMessageBox.warning(self, "Yetki", "Bu işlem için yetkiniz yok."); return
+        if not self._secili_file_ids:
+            QMessageBox.warning(self, "Uyarı", "Hiç dosya seçmediniz."); return
+
+        sayi = len(self._secili_file_ids)
+        d = self._onay_dialog(
+            "🗑  Seçilen Dosyaları Sil",
+            f"{sayi} dosya kalıcı olarak silinecek.",
+            f"Tüm zimmet geçmişi de silinecek.\nBu işlem GERİ ALINAMAZ.",
+            C_SIL=True
+        )
+        if d:
+            try:
+                toplu_hard_delete(list(self._secili_file_ids))
+                action_log_ekle(
+                    self.kullanici["id"], self.kullanici["username"],
+                    self.kullanici["full_name"], self.kullanici["role"],
+                    "TOPLU_DOSYA_SİL",
+                    f"{sayi} dosya silindi: {list(self._secili_file_ids)[:10]}..."
+                )
+                otomatik_excel_yedek()
+                self._toplu_mod_kapat()
+                self.veriyi_yukle()
+                QMessageBox.information(self, "Tamamlandı", f"{sayi} dosya silindi.")
+            except Exception as e:
+                QMessageBox.critical(self, "Hata", str(e))
+
+    def _tum_dosyalari_sifirla(self):
+        if self.kullanici["role"] not in ("admin", "arsiv"):
+            QMessageBox.warning(self, "Yetki", "Bu işlem için yetkiniz yok."); return
+        toplam = len(self._data)
+        if toplam == 0:
+            QMessageBox.information(self, "Bilgi", "Sistemde zaten hiç dosya yok."); return
+
+        # Çift onay — çok kritik işlem
+        d1 = QMessageBox(self)
+        d1.setWindowTitle("⚠️  Tehlikeli İşlem")
+        d1.setIcon(QMessageBox.Warning)
+        d1.setText(
+            f"<b>{toplam} DOSYANIN TAMAMINI SİLMEK ÜZERESINIZ!</b><br><br>"
+            f"Tüm zimmet geçmişi dahil her şey kalıcı silinecek.<br>"
+            f"<b>Bu işlem kesinlikle geri alınamaz.</b><br><br>"
+            f"Devam etmek istiyor musunuz?"
+        )
+        d1.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        d1.setDefaultButton(QMessageBox.No)
+        if d1.exec() != QMessageBox.Yes:
+            return
+
+        # İkinci onay — adımı yaz
+        onay_text, ok = QInputDialog.getText(
+            self, "Son Onay",
+            f"Bu işlemi onaylamak için\naşağıya  SİL  yazın:",
+        )
+        if not ok or onay_text.strip().upper() != "SİL":
+            QMessageBox.information(self, "İptal", "İşlem iptal edildi.")
+            return
+
+        try:
+            silinen = tum_dosyalari_sifirla()
+            action_log_ekle(
+                self.kullanici["id"], self.kullanici["username"],
+                self.kullanici["full_name"], self.kullanici["role"],
+                "TÜM_DOSYA_SIFIRLA",
+                f"{silinen} dosya tamamen silindi (RESET)"
+            )
+            otomatik_excel_yedek()
+            self._toplu_mod_kapat()
+            self.veriyi_yukle()
+            QMessageBox.information(
+                self, "Sıfırlandı",
+                f"✓ {silinen} dosya ve tüm zimmet geçmişi silindi.\nSistem sıfırlandı."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Hata", str(e))
+
+    def _onay_dialog(self, baslik, aciklama, detay, C_SIL=False) -> bool:
+        d = QDialog(self)
+        d.setWindowTitle(baslik)
+        d.setFixedWidth(420)
+        d.setStyleSheet(f"background:{P['surface']};")
+        dl = QVBoxLayout(d); dl.setContentsMargins(28,28,28,24); dl.setSpacing(14)
+        ikon = QLabel("🗑"); ikon.setAlignment(Qt.AlignCenter); ikon.setStyleSheet("font-size:36px;")
+        b = QLabel(aciklama); b.setAlignment(Qt.AlignCenter)
+        b.setStyleSheet(f"font-size:15px; font-weight:700; color:{P['txt']};")
+        dt = QLabel(detay); dt.setAlignment(Qt.AlignCenter); dt.setWordWrap(True)
+        dt.setStyleSheet(f"font-size:12px; color:{P['txt3']};")
+        bl = QHBoxLayout(); bl.setSpacing(10)
+        ip = QPushButton("İptal"); ip.setFixedHeight(42)
+        ip.setStyleSheet(f"QPushButton{{background:{P['bg']};color:{P['txt']};border:1.5px solid {P['border']};border-radius:10px;font-size:14px;font-weight:600;}}QPushButton:hover{{background:{P['surface']}}}")
+        ip.clicked.connect(d.reject)
+        ok = QPushButton("🗑  Evet, Sil"); ok.setFixedHeight(42)
+        ok.setStyleSheet(f"QPushButton{{background:{P['red']};color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;}}QPushButton:hover{{background:#B91C1C;}}")
+        ok.clicked.connect(d.accept)
+        bl.addWidget(ip); bl.addWidget(ok)
+        dl.addWidget(ikon); dl.addWidget(b); dl.addWidget(dt); dl.addLayout(bl)
+        return d.exec() == QDialog.Accepted
 
     def _dosya_sil(self):
         """Admin veya arşiv görevlisi dosyayı soft-delete ile siler."""
@@ -5739,14 +6534,6 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyleSheet(ANA_STIL)
-
-    # İlk açılışta Excel'den yükle
-    try:
-        from db import tum_files_ozet
-        if not tum_files_ozet():
-            _ilk_kurulum_excelden_aktar()
-    except Exception:
-        pass
 
     login = LoginDialog()
     # X ile kapatmak = çıkış, hatalı şifre = tekrar dene (dialog kapanmaz)
