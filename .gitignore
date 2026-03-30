@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+*.pyo
+
+# Veritabanı dosyaları
+*.db
+*.sqlite
+*.sqlite3
+
+# Sanal ortam
+.venv/
+env/
+
+# Veri klasörleri
+data/
+backups/
+
+# Diğer
+.env
+.DS_Store
