@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+{% set active = "mesajlar" %}
+{% block extra_css %}
+.msg-shell{display:flex;height:100vh;overflow:hidden;}
+.msg-left{width:280px;min-width:280px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;}
+.msg-left-hdr{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:6px;}
+.konusma-link{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer;text-decoration:none;transition:background 0.1s;}
+.konusma-link:hover{background:var(--surface2);}
+.konusma-link.active{background:var(--blue-bg);}
+.kavatar{border-radius:50%;background:var(--brand);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;flex-shrink:0;}
+.msg-right{flex:1;display:flex;flex-direction:column;background:var(--bg);min-width:0;}
+.msg-hdr{padding:12px 18px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;}
+.msg-area{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:4px;}
+.msg-row{display:flex;flex-direction:column;margin-bottom:2px;}
+.msg-row.ben{align-items:flex-end;}
+.msg-row.karsi{align-items:flex-start;}
+.bubble{max-width:65%;padding:9px 14px;border-radius:14px;font-size:13px;line-height:1.5;word-break:break-word;}
+.bubble.ben{background:var(--brand);color:white;border-bottom-right-radius:3px;}
+.bubble.karsi{background:var(--surface);color:var(--txt);border:1px solid var(--border);border-bottom-left-radius:3px;box-shadow:0 1px 2px rgba(0,0,0,0.05);}
+.msg-meta{display:flex;align-items:center;gap:5px;margin-top:2px;padding:0 2px;}
+.sil-btn{background:none;border:none;cursor:pointer;font-size:12px;color:var(--txt4);padding:0 3px;opacity:0.6;line-height:1;}
+.sil-btn:hover{color:var(--red);opacity:1;}
+.online-dot{width:8px;height:8px;background:#22c55e;border-radius:50%;display:inline-block;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
+.msg-input-area{padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;}
+{% endblock %}
+
+{% block content %}
+<div class="msg-shell">
+
+    <!-- Sol panel -->
+    <div class="msg-left">
+        <div class="msg-left-hdr">
+            <span style="font-size:14px;font-weight:700;color:var(--txt);">💬 Mesajlar</span>
+            <div style="display:flex;gap:5px;">
+                {% if kullanici.role in ('admin','arsiv') %}
+                <button onclick="document.getElementById('duyuru_modal').classList.add('open')"
+                        title="Duyuru Gönder"
+                        style="width:30px;height:30px;border-radius:7px;border:none;background:var(--amber-bg);color:var(--amber);cursor:pointer;font-size:15px;">📢</button>
+                {% endif %}
+                <button onclick="document.getElementById('yeni_modal').classList.add('open')" class="btn btn-primary btn-sm">+ Yeni</button>
+            </div>
+        </div>
+
+        <!-- Online kullanıcılar -->
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface2);">
+            <div style="font-size:10px;font-weight:700;color:var(--txt4);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">Online</div>
+            <div id="online-list" style="display:flex;flex-wrap:wrap;gap:4px;min-height:20px;">
+                <span style="font-size:11px;color:var(--txt4);">Yükleniyor...</span>
+            </div>
+        </div>
+
+        <!-- Konuşmalar -->
+        <div style="flex:1;overflow-y:auto;">
+            {% for k in konusmalar %}
+            <a href="/mesajlar/{{ k.diger_id }}" class="konusma-link {% if aktif_id == k.diger_id %}active{% endif %}">
+                <div class="kavatar" style="width:36px;height:36px;font-size:13px;">{{ (k.diger_isim or '?')[0].upper() }}</div>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-size:13px;font-weight:600;color:var(--txt);">{{ k.diger_isim }}</span>
+                        <span style="font-size:10px;color:var(--txt4);">
+                            {%- set st = k.son_zaman|default('') -%}
+                            {%- if ' ' in st %}{{ st.split(' ')[1][:5] }}{% else %}{{ st[-5:] if st else '' }}{% endif -%}
+                        </span>
+                    </div>
+                    <div style="font-size:11px;color:var(--txt4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ k.son_mesaj|default('') }}</div>
+                </div>
+                {% if k.okunmamis %}
+                <div style="width:18px;height:18px;background:var(--red);border-radius:50%;color:white;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ k.okunmamis }}</div>
+                {% endif %}
+            </a>
+            {% else %}
+            <div style="padding:24px;text-align:center;color:var(--txt4);font-size:13px;">Henüz mesaj yok.<br>+ Yeni'ye tıklayın.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Sağ panel -->
+    <div class="msg-right">
+        {% if aktif_id %}
+
+        <div class="msg-hdr">
+            <div class="kavatar" style="width:34px;height:34px;font-size:13px;">{{ (aktif_isim or '?')[0].upper() }}</div>
+            <div style="flex:1;">
+                <div style="font-size:14px;font-weight:700;color:var(--txt);">{{ aktif_isim }}</div>
+                <div style="font-size:11px;color:var(--txt4);display:flex;align-items:center;gap:5px;">
+                    <span id="karsi-online-dot" style="display:none;" class="online-dot"></span>
+                    <span id="karsi-online-txt" style="color:var(--txt4);">Özel mesaj</span>
+                </div>
+            </div>
+            <button onclick="sohbetiTemizle({{ aktif_id }})" class="btn btn-ghost btn-sm"
+                    style="color:var(--red);border-color:#FECACA;font-size:12px;">🗑 Sohbeti Temizle</button>
+        </div>
+
+        <div class="msg-area" id="msg-area">
+            {% for m in mesajlar %}
+            {%- set is_ben = (m.gonderen_id == benim_id) -%}
+            {%- set ols = m.olusturma|default('') -%}
+            {%- set saat = ols.split(' ')[1][:5] if ' ' in ols else ols[-5:] -%}
+            <div class="msg-row {% if is_ben %}ben{% else %}karsi{% endif %}" id="msg-{{ m.id }}">
+                <div class="bubble {% if is_ben %}ben{% else %}karsi{% endif %}">
+                    {%- if m.icerik and m.icerik.startswith('[FOTO:') -%}
+                    <img src="data:{{ m.icerik[6:m.icerik.index(';')] }};base64,{{ m.icerik[m.icerik.index(';')+1:m.icerik.index(']')] }}"
+                         style="max-width:200px;max-height:160px;border-radius:8px;display:block;cursor:pointer;"
+                         onclick="this.style.maxWidth=this.style.maxWidth==='100%'?'200px':'100%'" alt="Fotoğraf">
+                    {%- else -%}
+                    {{ m.icerik }}
+                    {%- endif -%}
+                </div>
+                <div class="msg-meta">
+                    {% if not is_ben %}<span style="font-size:10px;font-weight:600;color:var(--txt4);">{{ m.gonderen }}</span>{% endif %}
+                    <span style="font-size:11px;color:var(--txt4);">{{ saat }}</span>
+                    {% if is_ben %}
+                    <span style="font-size:11px;color:{% if m.karsisi_okudu %}var(--brand){% else %}var(--txt4){% endif %};"
+                          title="{% if m.karsisi_okudu %}Okundu{% else %}İletildi{% endif %}">
+                        {% if m.karsisi_okudu %}✓✓{% else %}✓{% endif %}
+                    </span>
+                    {% endif %}
+                    {% if is_ben or kullanici.role == 'admin' %}
+                    <button class="sil-btn" onclick="mesajSilAjax({{ m.id }})" title="Sili">🗑</button>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--txt4);">
+                <div style="font-size:32px;">💬</div><div>Henüz mesaj yok.</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="msg-input-area" style="flex-direction:column;gap:0;">
+            <!-- Emoji picker (gizli) -->
+            <div id="emoji-picker" style="display:none;flex-wrap:wrap;gap:4px;padding:10px 12px;
+                 background:var(--surface);border:1px solid var(--border);border-radius:10px;
+                 margin-bottom:8px;max-height:120px;overflow-y:auto;">
+                {% for e in ['😊','😂','🎉','👍','❤️','🔥','✅','⚠️','📂','📋','📌','🕐','📞','💬','🏛','📊','👋','🙏','💪','✨','😅','🤔','👀','📝','🚀','⭐','🎯','💡','🔑','📤','📥','🗑','✏️','🔍','📅'] %}
+                <button onclick="emojiEkle('{{ e }}')"
+                        style="background:none;border:none;font-size:20px;cursor:pointer;padding:3px;border-radius:6px;transition:background 0.1s;"
+                        onmouseover="this.style.background='var(--surface2)'"
+                        onmouseout="this.style.background='none'">{{ e }}</button>
+                {% endfor %}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;width:100%;">
+                <div class="kavatar" style="width:32px;height:32px;font-size:12px;flex-shrink:0;">{{ kullanici.full_name[0].upper() }}</div>
+                <!-- Emoji butonu -->
+                <button onclick="toggleEmoji()" title="Emoji"
+                        style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;border-radius:6px;flex-shrink:0;"
+                        id="emoji-btn">😊</button>
+                <!-- Foto butonu -->
+                <label title="Fotoğraf gönder" style="cursor:pointer;padding:4px;border-radius:6px;font-size:18px;flex-shrink:0;">
+                    📎
+                    <input type="file" id="foto-input" accept="image/*" style="display:none;" onchange="fotoGonder(this)">
+                </label>
+                <!-- Mesaj input -->
+                <form id="msg-form" style="flex:1;display:flex;gap:8px;" onsubmit="mesajGonderAjax(event)">
+                    <input id="msg-input" type="text" class="input" placeholder="Mesaj yazın... (Enter)" autocomplete="off" style="flex:1;">
+                    <button type="submit" class="btn btn-primary">Gönder</button>
+                </form>
+            </div>
+        </div>
+
+        {% else %}
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--txt4);">
+            <div style="font-size:40px;">💬</div>
+            <div style="font-size:14px;font-weight:500;">Bir konuşma seçin</div>
+            <div style="font-size:12px;">veya yeni konuşma başlatın</div>
+        </div>
+        <div class="msg-input-area">
+            <div class="kavatar" style="width:32px;height:32px;background:var(--border);flex-shrink:0;"></div>
+            <input type="text" class="input" placeholder="Mesaj yazın..." disabled style="flex:1;opacity:0.5;">
+            <button class="btn btn-ghost" disabled style="opacity:0.5;">Gönder</button>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Yeni Mesaj Modal -->
+<div id="yeni_modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-title">Yeni Mesaj</div>
+        <form method="post" action="/mesaj/gonder">
+            <div style="margin-bottom:14px;">
+                <label class="form-label">Kişi</label>
+                <select name="alici_id" class="input" required>
+                    <option value="">— Kişi seçin —</option>
+                    {% for u in kullanicilar %}<option value="{{ u.id }}">{{ u.full_name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div style="margin-bottom:16px;">
+                <label class="form-label">Mesaj</label>
+                <textarea name="icerik" rows="4" class="input" style="resize:none;" placeholder="Mesajınızı yazın..." required></textarea>
+            </div>
+            <div style="display:flex;gap:10px;">
+                <button type="button" onclick="document.getElementById('yeni_modal').classList.remove('open')" class="btn btn-ghost" style="flex:1;">İptal</button>
+                <button type="submit" class="btn btn-primary" style="flex:1;">Gönder</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Duyuru Modal -->
+<div id="duyuru_modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-title">📢 Duyuru Gönder</div>
+        <form method="post" action="/duyuru/gonder">
+            <div style="margin-bottom:14px;">
+                <label class="form-label">Konu</label>
+                <input name="konu" type="text" class="input" placeholder="Duyuru konusu...">
+            </div>
+            <div style="margin-bottom:16px;">
+                <label class="form-label">İçerik</label>
+                <textarea name="icerik" rows="4" class="input" style="resize:none;" placeholder="Duyuru içeriği..." required></textarea>
+            </div>
+            <div style="display:flex;gap:10px;">
+                <button type="button" onclick="document.getElementById('duyuru_modal').classList.remove('open')" class="btn btn-ghost" style="flex:1;">İptal</button>
+                <button type="submit" class="btn btn-amber" style="flex:1;">📢 Duyur</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const AKTIF_ID = {{ aktif_id | tojson }};
+const BENIM_ID = {{ benim_id | tojson }};
+const IS_ADMIN = {{ 'true' if kullanici.role == 'admin' else 'false' }};
+
+// Scroll to bottom
+const area = document.getElementById('msg-area');
+if (area) area.scrollTop = area.scrollHeight;
+
+// AJAX Mesaj Gönder
+async function mesajGonderAjax(e) {
+    e.preventDefault();
+    const inp = document.getElementById('msg-input');
+    const txt = inp.value.trim();
+    if (!txt || !AKTIF_ID) return;
+    const fd = new FormData();
+    fd.append('alici_id', AKTIF_ID);
+    fd.append('icerik', txt);
+    inp.value = '';
+    inp.focus();
+    await fetch('/mesaj/gonder', {method:'POST', body:fd});
+    await mesajlariYukle();
+}
+
+// AJAX Mesaj Sil
+async function mesajSilAjax(id) {
+    if (!confirm('Bu mesajı silmek istiyor musunuz?')) return;
+    const r = await fetch('/mesaj/sil/' + id, {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+        const el = document.getElementById('msg-' + id);
+        if (el) { el.style.opacity='0'; el.style.transition='opacity 0.3s'; setTimeout(()=>el.remove(),300); }
+        bildirim('✓ Mesaj silindi');
+    } else {
+        bildirim('Hata: ' + (d.hata||''), 'hata');
+    }
+}
+
+// Sohbeti Temizle
+async function sohbetiTemizle(digerId) {
+    if (!confirm('Bu sohbetteki tüm mesajlar sizin için silinecek. Devam edilsin mi?')) return;
+    const r = await fetch('/sohbet/temizle/' + digerId, {method:'POST'});
+    const d = await r.json();
+    if (d.ok) { bildirim('✓ Sohbet temizlendi'); setTimeout(()=>window.location.href='/mesajlar', 800); }
+    else bildirim('Hata: ' + (d.hata||''), 'hata');
+}
+
+// Mesajları yükle (AJAX)
+async function mesajlariYukle() {
+    if (!AKTIF_ID) return;
+    try {
+        const r = await fetch('/api/mesajlar/' + AKTIF_ID);
+        const d = await r.json();
+        if (!d.html) return;
+        const a = document.getElementById('msg-area');
+        if (!a) return;
+        const atBottom = a.scrollTop + a.clientHeight >= a.scrollHeight - 40;
+        a.innerHTML = d.html;
+        if (atBottom) a.scrollTop = a.scrollHeight;
+    } catch(e) {}
+}
+
+// Online kullanıcıları güncelle
+async function onlineGuncelle() {
+    try {
+        const r = await fetch('/api/online-kullanicilar');
+        const d = await r.json();
+        if (!d.ok) return;
+        const liste  = document.getElementById('online-list');
+        const karsiDot = document.getElementById('karsi-online-dot');
+        const karsiTxt = document.getElementById('karsi-online-txt');
+        if (liste) {
+            if (d.kullanicilar.length === 0) {
+                liste.innerHTML = '<span style="font-size:11px;color:var(--txt4);">Kimse online değil</span>';
+            } else {
+                liste.innerHTML = d.kullanicilar.map(u =>
+                    `<span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--txt2);background:var(--green-bg);border:1px solid #A7F3D0;border-radius:20px;padding:2px 8px;">
+                        <span style="width:6px;height:6px;background:#22c55e;border-radius:50%;display:inline-block;"></span>${u.full_name.split(' ')[0]}
+                    </span>`
+                ).join('');
+            }
+        }
+        // Karşı kullanıcı online mı?
+        if (AKTIF_ID && karsiDot && karsiTxt) {
+            const karsiOnline = d.kullanicilar.some(u => u.id === AKTIF_ID);
+            karsiDot.style.display = karsiOnline ? 'inline-block' : 'none';
+            karsiTxt.textContent   = karsiOnline ? 'Online' : 'Özel mesaj';
+            karsiTxt.style.color   = karsiOnline ? '#22c55e' : 'var(--txt4)';
+        }
+    } catch(e) {}
+}
+
+// Enter ile gönder
+document.getElementById('msg-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        document.getElementById('msg-form').dispatchEvent(new Event('submit'));
+    }
+});
+
+// Emoji
+function toggleEmoji() {
+    const p = document.getElementById('emoji-picker');
+    if (p) p.style.display = p.style.display === 'none' ? 'flex' : 'none';
+}
+function emojiEkle(e) {
+    const inp = document.getElementById('msg-input');
+    if (inp) { inp.value += e; inp.focus(); }
+    document.getElementById('emoji-picker').style.display = 'none';
+}
+// Dışarı tıklanınca emoji kapat
+document.addEventListener('click', (e) => {
+    const p = document.getElementById('emoji-picker');
+    const b = document.getElementById('emoji-btn');
+    if (p && b && !p.contains(e.target) && !b.contains(e.target)) p.style.display = 'none';
+});
+
+// Foto gönder
+async function fotoGonder(input) {
+    if (!input.files[0] || !AKTIF_ID) return;
+    const file = input.files[0];
+    if (file.size > 5*1024*1024) { bildirim('Maksimum 5MB', 'hata'); return; }
+    loading(true, 'Fotoğraf gönderiliyor...');
+    const fd = new FormData();
+    fd.append('alici_id', AKTIF_ID);
+    fd.append('foto', file);
+    const r = await fetch('/mesaj/foto', {method:'POST', body:fd});
+    loading(false);
+    const d = await r.json();
+    if (d.ok) { bildirim('✓ Fotoğraf gönderildi'); mesajlariYukle(); }
+    else bildirim('Hata: ' + (d.hata||''), 'hata');
+    input.value = '';
+}
+
+// Polling — her 5 sn mesaj + online
+if (AKTIF_ID) setInterval(mesajlariYukle, 5000);
+setInterval(onlineGuncelle, 10000);
+onlineGuncelle(); // İlk yüklemede hemen çalıştır
+</script>
+{% endblock %}

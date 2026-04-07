@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+{% set active = "uzerim" %}
+{% block content %}
+<div style="padding:24px 32px;">
+
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;">
+        <div>
+            <div class="page-title">📌 Üzerimdeki Dosyalar</div>
+            <div class="page-subtitle">Zimmetinizdeki dosyalar — {{ kullanici.full_name }}</div>
+        </div>
+        <button onclick="location.reload()" class="btn btn-ghost">↻ Yenile</button>
+    </div>
+
+    <!-- Metrikler -->
+    {% set toplam_d   = dosyalar|length %}
+    {% set gecikmis_d = dosyalar|selectattr('bekleme_gun','ge',10)|list|length %}
+    {% set ort = (dosyalar|sum(attribute='bekleme_gun') // [toplam_d,1]|max) if dosyalar else 0 %}
+    <div style="display:grid;grid-template-columns:repeat({% if rol in ('arsiv','admin') %}4{% else %}3{% endif %},1fr);gap:14px;margin-bottom:20px;">
+        <div class="metric-card"><div class="metric-strip" style="background:var(--brand);"></div>
+            <div class="metric-icon" style="background:var(--blue-bg);">📋</div>
+            <div><div class="metric-val" style="color:var(--brand);">{{ toplam_d }}</div><div class="metric-lbl">ZİMMETİMDEKİ</div></div>
+        </div>
+        <div class="metric-card"><div class="metric-strip" style="background:var(--red);"></div>
+            <div class="metric-icon" style="background:var(--red-bg);">⚠️</div>
+            <div><div class="metric-val" style="color:var(--red);">{{ gecikmis_d }}</div><div class="metric-lbl">GECİKMİŞ</div></div>
+        </div>
+        <div class="metric-card"><div class="metric-strip" style="background:#536478;"></div>
+            <div class="metric-icon" style="background:#F1F5F9;">⏱</div>
+            <div><div class="metric-val" style="color:#536478;">{{ ort }}g</div><div class="metric-lbl">ORT. BEKLEME</div></div>
+        </div>
+        {% if rol in ('arsiv','admin') %}
+        <div class="metric-card"><div class="metric-strip" style="background:var(--amber);"></div>
+            <div class="metric-icon" style="background:var(--amber-bg);">📤</div>
+            <div><div class="metric-val" style="color:var(--amber);">{{ arsive_gonderilen|length }}</div><div class="metric-lbl">ARŞİVE GÖNDERİLDİ</div></div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- KENDİ ZİMMETLERİ -->
+    <div class="card" style="overflow:hidden;margin-bottom:16px;">
+        <div style="padding:13px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--txt);display:flex;align-items:center;justify-content:space-between;">
+            <span>📋 Zimmetinizdeki Dosyalar</span>
+            {% if secili_id %}<span style="font-size:12px;color:var(--brand);">✓ Seçili: {{ secili_no }}</span>{% endif %}
+        </div>
+        <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr style="background:var(--surface2);border-bottom:2px solid var(--border);">
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">DOSYA NO</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">İLÇE</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">ŞEFLİĞİ</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">ADA</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">PARSEL</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">TESLİM TARİHİ</th>
+                    <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">BEKLEME</th>
+                    <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">DURUM</th>
+                </tr></thead>
+                <tbody id="zimmet-tbody">
+                {% for d in dosyalar %}
+                {% set dur = d.durum|default('') %}
+                <tr id="row-{{ d.file_id }}"
+                    onclick="satirSec({{ d.file_id }},'{{ d.orijinal_dosya_no }}','{{ dur }}')"
+                    style="border-bottom:1px solid var(--border);cursor:pointer;
+                           {% if d.bekleme_gun and d.bekleme_gun >= 10 %}background:#FFF5F5;{% endif %}">
+                    <td style="padding:9px 12px;font-weight:700;color:var(--txt);">{{ d.orijinal_dosya_no }}</td>
+                    <td style="padding:9px 12px;color:var(--txt2);">{{ d.ilce }}</td>
+                    <td style="padding:9px 12px;font-size:12px;color:var(--txt3);">{{ d.sefligi|default('') }}</td>
+                    <td style="padding:9px 12px;color:var(--txt2);">{{ d.ada|default('') }}</td>
+                    <td style="padding:9px 12px;color:var(--txt2);">{{ d.parsel|default('') }}</td>
+                    <td style="padding:9px 12px;font-size:12px;color:var(--txt4);">{{ d.teslim_tarihi|default('—') }}</td>
+                    <td style="padding:9px 12px;text-align:center;font-weight:700;
+                               color:{% if d.bekleme_gun and d.bekleme_gun >= 10 %}var(--red){% else %}var(--txt3){% endif %};">
+                        {{ d.bekleme_gun|default(0) }}g
+                    </td>
+                    <td style="padding:9px 12px;text-align:center;">
+                        {% if 'GECİKMİŞ' in dur %}<span class="badge badge-red">{{ dur }}</span>
+                        {% elif 'GÖNDERİLDİ' in dur %}<span class="badge badge-amber">{{ dur }}</span>
+                        {% else %}<span class="badge badge-blue">{{ dur }}</span>{% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" style="padding:32px;text-align:center;color:var(--txt4);">✓ Üzerinizde açık zimmet bulunmuyor.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Aksiyon Butonları - role göre -->
+        {% if dosyalar %}
+        <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            {% if rol in ('arsiv','admin') %}
+            <button onclick="aksiyonYap('arsive-al')" class="btn btn-success">✅ Arşive Al</button>
+            <button onclick="aksiyonYap('arsive-gonder')" class="btn btn-amber">📤 Arşive Gönder</button>
+            <button onclick="iadeEt()" class="btn btn-ghost" style="border-color:var(--amber);color:var(--amber);">↩ İade Et</button>
+            <button onclick="btnYenidenZimmet()" class="btn btn-ghost" style="border-color:var(--brand);color:var(--brand);">🔄 Yeniden Zimmetle</button>
+            <button onclick="gecmisGoster()" class="btn btn-ghost">📜 Hareket Geçmişi</button>
+            {% else %}
+            <button onclick="aksiyonYap('arsive-gonder')" class="btn btn-amber">📤 Arşive Gönder</button>
+            <button onclick="gecmisGoster()" class="btn btn-ghost">📜 Hareket Geçmişi</button>
+            {% endif %}
+            <span id="secim-bilgi" style="font-size:12px;color:var(--txt4);margin-left:4px;">— Önce bir satıra tıklayın —</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ARŞİVE GÖNDERİLENLER (sadece arsiv/admin) -->
+    {% if rol in ('arsiv','admin') and arsive_gonderilen %}
+    <div class="card" style="overflow:hidden;">
+        <div style="padding:13px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--amber);display:flex;align-items:center;gap:6px;">
+            📤 Arşive Gönderildi — Onay Bekliyor
+            <span style="background:var(--amber-bg);color:var(--amber);padding:2px 8px;border-radius:10px;font-size:11px;">{{ arsive_gonderilen|length }}</span>
+        </div>
+        <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr style="background:#FFFBEB;border-bottom:2px solid #FCD34D;">
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;">DOSYA NO</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;">İLÇE</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;">TESLİM ALAN</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;">TARİH</th>
+                    <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--amber);text-transform:uppercase;">İŞLEM</th>
+                </tr></thead>
+                <tbody>
+                {% for d in arsive_gonderilen %}
+                <tr style="background:#FFFBEB;border-bottom:1px solid #FEF3C7;">
+                    <td style="padding:9px 12px;font-weight:700;color:var(--txt);">{{ d.orijinal_dosya_no }}</td>
+                    <td style="padding:9px 12px;color:var(--txt2);">{{ d.ilce }}</td>
+                    <td style="padding:9px 12px;color:var(--txt2);">{{ d.teslim_alan_personel|default('—') }}</td>
+                    <td style="padding:9px 12px;font-size:12px;color:var(--txt4);">{{ d.teslim_tarihi|default('—') }}</td>
+                    <td style="padding:9px 12px;text-align:center;">
+                        <div style="display:flex;gap:6px;justify-content:center;">
+                            <button onclick="dogrudan_arsive_al({{ d.file_id }})" class="btn btn-success btn-sm">✅ Arşive Al</button>
+                            <button onclick="gonderi_iptal({{ d.file_id }})" class="btn btn-ghost btn-sm">✕ İptal</button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% elif rol in ('arsiv','admin') %}
+    <div style="padding:12px 18px;font-size:13px;color:var(--green);display:flex;align-items:center;gap:6px;">
+        ✅ Arşive gönderilmiş bekleyen dosya yok.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Yeniden Zimmetle Modal -->
+<div id="zimmet-modal" class="modal-overlay">
+    <div class="modal" style="max-width:420px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div class="modal-title" style="margin:0;">🔄 Yeniden Zimmetle</div>
+            <button onclick="document.getElementById('zimmet-modal').classList.remove('open')"
+                    style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--txt4);">✕</button>
+        </div>
+        <p id="zimmet-bilgi" style="font-size:13px;color:var(--txt4);margin-bottom:14px;"></p>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+            <div>
+                <label class="form-label">TESLİM ALAN *</label>
+                <select id="zimmet-kisi" class="input">
+                    <option value="">— Kişi seçin —</option>
+                    {% for u in kullanicilar %}
+                    <option value="{{ u.full_name }}" data-uid="{{ u.id }}">{{ u.full_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label">NOT</label>
+                <input id="zimmet-not" type="text" class="input" placeholder="İsteğe bağlı...">
+            </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:18px;">
+            <button onclick="document.getElementById('zimmet-modal').classList.remove('open')"
+                    class="btn btn-ghost" style="flex:1;">İptal</button>
+            <button onclick="zimmetKaydet()" class="btn btn-primary" style="flex:1;">✓ Zimmetle</button>
+        </div>
+    </div>
+</div>
+
+<!-- Geçmiş Modal -->
+<div id="gecmis-modal" class="modal-overlay">
+    <div class="modal" style="max-width:680px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div class="modal-title" id="gecmis-baslik" style="margin:0;">📜 Hareket Geçmişi</div>
+            <button onclick="document.getElementById('gecmis-modal').classList.remove('open')"
+                    style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--txt4);">✕</button>
+        </div>
+        <div id="gecmis-icerik">Yükleniyor...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let secili = { id: null, no: null, durum: null };
+
+function satirSec(id, no, durum) {
+    document.querySelectorAll('tbody tr[id^="row-"]').forEach(r => {
+        r.style.outline = ''; r.style.outlineOffset = '';
+    });
+    const tr = document.getElementById('row-' + id);
+    if (tr) { tr.style.outline = '2px solid var(--brand)'; tr.style.outlineOffset = '-1px'; }
+    secili = { id, no, durum };
+    document.getElementById('secim-bilgi').textContent = '✓ Seçili: Dosya No ' + no;
+}
+
+async function aksiyonYap(tip) {
+    if (!secili.id) { bildirim('Önce bir dosya seçin', 'hata'); return; }
+    const mesaj = tip === 'arsive-al' ? 'arşive alınacak' : 'arşive gönderilecek';
+    if (!confirm('Dosya No ' + secili.no + ' ' + mesaj + '. Devam edilsin mi?')) return;
+    loading(true);
+    const r = await apiPost('/api/' + tip + '/' + secili.id);
+    loading(false);
+    r.ok ? (bildirim('✓ İşlem tamamlandı'), setTimeout(() => location.reload(), 800))
+          : bildirim('Hata: ' + (r.detail || r.hata || ''), 'hata');
+}
+
+async function dogrudan_arsive_al(id) {
+    if (!confirm('Bu dosyayı arşive almak istediğinizden emin misiniz?')) return;
+    loading(true);
+    const r = await apiPost('/api/arsive-al/' + id);
+    loading(false);
+    r.ok ? (bildirim('✓ Arşive alındı'), setTimeout(() => location.reload(), 800))
+          : bildirim('Hata', 'hata');
+}
+
+async function gonderi_iptal(id) {
+    if (!confirm('Arşive gönderme iptal edilecek. Devam edilsin mi?')) return;
+    loading(true);
+    const r = await apiPost('/api/arsive-gonder-iptal/' + id);
+    loading(false);
+    r.ok ? (bildirim('✓ İptal edildi'), setTimeout(() => location.reload(), 800))
+          : bildirim('Hata', 'hata');
+}
+
+async function iadeEt() {
+    if (!secili.id) { bildirim('Önce bir dosya seçin', 'hata'); return; }
+    const not_metni = prompt('İade notu girin (zorunlu):');
+    if (not_metni === null) return;
+    if (!not_metni.trim()) { bildirim('Not zorunlu', 'hata'); return; }
+    loading(true);
+    const fd = new FormData(); fd.append('not_metni', not_metni.trim());
+    const r = await fetch('/api/iade/' + secili.id, {method:'POST', body:fd});
+    loading(false);
+    const d = await r.json();
+    d.ok ? (bildirim('✓ İade edildi'), setTimeout(() => location.reload(), 800))
+          : bildirim('Hata', 'hata');
+}
+
+function btnYenidenZimmet() {
+    if (!secili.id) { bildirim('Önce bir dosya seçin', 'hata'); return; }
+    document.getElementById('zimmet-bilgi').textContent = 'Dosya No: ' + secili.no;
+    document.getElementById('zimmet-kisi').value = '';
+    document.getElementById('zimmet-not').value = '';
+    document.getElementById('zimmet-modal').classList.add('open');
+}
+
+async function zimmetKaydet() {
+    const sel  = document.getElementById('zimmet-kisi');
+    const isim = sel.value;
+    const uid  = sel.options[sel.selectedIndex]?.dataset?.uid || '';
+    const not_ = document.getElementById('zimmet-not').value;
+    if (!isim) { bildirim('Kişi seçin', 'hata'); return; }
+    document.getElementById('zimmet-modal').classList.remove('open');
+    loading(true, 'Zimmetleniyor...');
+    const fd = new FormData();
+    fd.append('teslim_alan', isim);
+    if (uid) fd.append('teslim_alan_user_id', uid);
+    fd.append('notlar', not_);
+    const r = await fetch('/api/yeniden-zimmetle/' + secili.id, {method:'POST', body:fd});
+    loading(false);
+    const d = await r.json();
+    d.ok ? (bildirim('✓ Zimmetlendi'), setTimeout(() => location.reload(), 800))
+          : bildirim(d.hata || 'Hata', 'hata');
+}
+
+async function gecmisGoster() {
+    if (!secili.id) { bildirim('Önce bir dosya seçin', 'hata'); return; }
+    document.getElementById('gecmis-baslik').textContent = '📜 Hareket Geçmişi — Dosya No: ' + secili.no;
+    document.getElementById('gecmis-icerik').innerHTML = '<div style="text-align:center;padding:24px;color:var(--txt4);">Yükleniyor...</div>';
+    document.getElementById('gecmis-modal').classList.add('open');
+    try {
+        const r = await fetch('/api/dosya-gecmis/' + secili.id);
+        const d = await r.json();
+        if (!d.ok || !d.gecmis?.length) {
+            document.getElementById('gecmis-icerik').innerHTML = '<p style="color:var(--txt4);text-align:center;padding:24px;">Hareket kaydı bulunamadı.</p>';
+            return;
+        }
+        const acik = d.gecmis.filter(h => !h.iade_tarihi).length;
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:var(--surface2);">'
+            + ['#','TESLİM TARİH','TESLİM ALAN','ARŞİV GÖR.','İADE TARİHİ','İADE ALAN','NOT'].map(h =>
+                `<th style="padding:9px 10px;text-align:left;font-size:10px;font-weight:700;color:var(--txt4);border-bottom:1px solid var(--border);">${h}</th>`
+              ).join('') + '</tr></thead><tbody>';
+        d.gecmis.forEach((h, i) => {
+            const isAcik = !h.iade_tarihi;
+            html += `<tr style="${isAcik?'background:#EFF6FF;':''}border-bottom:1px solid var(--border);">
+                <td style="padding:8px 10px;text-align:center;color:var(--txt4);font-weight:700;">${i+1}</td>
+                <td style="padding:8px 10px;color:var(--txt2);">${h.teslim_tarihi||'—'}</td>
+                <td style="padding:8px 10px;font-weight:${isAcik?700:400};color:${isAcik?'var(--brand)':'var(--txt2)'};">${h.teslim_alan_personel||'—'}</td>
+                <td style="padding:8px 10px;color:var(--txt3);">${h.veren_arsiv_gorevlisi||'—'}</td>
+                <td style="padding:8px 10px;color:${h.iade_tarihi?'var(--green)':'var(--txt4)'};">${h.iade_tarihi||'—'}</td>
+                <td style="padding:8px 10px;color:var(--txt3);">${h.iade_alan_gorevli||'—'}</td>
+                <td style="padding:8px 10px;font-size:11px;color:var(--txt4);">${h.notlar||'—'}</td>
+            </tr>`;
+        });
+        html += `</tbody></table><div style="padding:12px 4px;border-top:1px solid var(--border);margin-top:4px;display:flex;justify-content:space-between;font-size:12px;color:var(--txt4);">
+            <span>Toplam ${d.gecmis.length} hareket</span>
+            ${acik ? `<span style="color:var(--amber);font-weight:600;">⚠ ${acik} açık zimmet</span>` : '<span style="color:var(--green);font-weight:600;">✓ Arşivde</span>'}
+        </div>`;
+        document.getElementById('gecmis-icerik').innerHTML = html;
+    } catch(e) {
+        document.getElementById('gecmis-icerik').innerHTML = '<p style="color:var(--red);">Yüklenemedi.</p>';
+    }
+}
+</script>
+{% endblock %}

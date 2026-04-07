@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% set active = "dosyalar" %}
+{% block content %}
+<div style="padding:28px 32px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+        <a href="/dosyalar" style="color:var(--txt4);font-size:13px;text-decoration:none;">← Geri</a>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+        <div style="width:36px;height:36px;background:var(--blue-bg);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;">📁</div>
+        <div>
+            <div class="page-title">Yeni Dosya Kaydı</div>
+            <div class="page-subtitle">Yeni dosya oluştur ve zimmetle</div>
+        </div>
+    </div>
+
+    {% if hata %}
+    <div class="banner banner-red" style="margin-bottom:16px;">⚠ {{ hata }}</div>
+    {% endif %}
+
+    <div class="card" style="padding:28px;max-width:700px;">
+        <form method="post" action="/dosya/yeni" id="dosya_form">
+
+            <!-- DOSYA NO -->
+            <div style="margin-bottom:20px;">
+                <label class="form-label">DOSYA NO <span style="color:var(--red);">*</span></label>
+                <input name="dosya_no" id="dosya_no" type="text" class="input"
+                       placeholder="Sadece rakam, örn: 1234" required
+                       style="font-size:16px;font-weight:700;color:var(--brand);">
+                <div style="font-size:11px;color:var(--txt4);margin-top:5px;">Sadece sayısal değer giriniz</div>
+            </div>
+
+            <!-- İLÇE + MÜDÜRLÜK -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+                <div>
+                    <label class="form-label">İLÇE <span style="color:var(--red);">*</span></label>
+                    <select name="ilce" class="input" required>
+                        <option value="">— İlçe seçin —</option>
+                        {% for ilce in ilceler %}
+                        <option value="{{ ilce }}">{{ ilce }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">MÜDÜRLÜK <span style="color:var(--red);">*</span></label>
+                    <select name="sefligi" class="input" required>
+                        <option value="">— Müdürlük seçin —</option>
+                        {% for mud in mudürlükler %}
+                        <option value="{{ mud }}">{{ mud }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- ADA + PARSEL -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+                <div>
+                    <label class="form-label">ADA <span style="color:var(--red);">*</span></label>
+                    <input name="ada" type="text" class="input" placeholder="Ada no" required>
+                </div>
+                <div>
+                    <label class="form-label">PARSEL <span style="color:var(--red);">*</span></label>
+                    <input name="parsel" type="text" class="input" placeholder="Parsel no" required>
+                </div>
+            </div>
+
+            <!-- TESLİM ALAN -->
+            <div style="margin-bottom:20px;">
+                <label class="form-label">TESLİM ALAN PERSONEL <span style="color:var(--red);">*</span></label>
+                <select name="teslim_alan" id="teslim_sel" class="input" onchange="teslimSecildi(this)" required>
+                    <option value="">— Kullanıcı seçin —</option>
+                    {% for u in kullanicilar %}
+                    <option value="{{ u.full_name }}" data-uid="{{ u.id }}">{{ u.full_name }}  ({{ u.role }})</option>
+                    {% endfor %}
+                    <option value="__serbest__">── Serbest isim gir ──</option>
+                </select>
+                <input type="hidden" name="teslim_alan_user_id" id="teslim_uid">
+                <input name="teslim_alan_serbest" id="teslim_serbest" type="text" class="input"
+                       placeholder="Personel ismini yazın..." style="display:none;margin-top:8px;">
+            </div>
+
+            <!-- ARŞİV GÖREVLİSİ -->
+            <div style="margin-bottom:20px;">
+                <label class="form-label">ARŞİV GÖREVLİSİ <span style="color:var(--red);">*</span></label>
+                <input name="arsiv_gorevlisi" type="text" class="input"
+                       value="{{ kullanici.full_name }}" required>
+            </div>
+
+            <!-- TARİH + SAAT -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+                <div>
+                    <label class="form-label">TESLİM TARİHİ</label>
+                    <input name="teslim_tarihi" type="date" class="input" id="tarih_input">
+                </div>
+                <div>
+                    <label class="form-label">SAAT</label>
+                    <input name="teslim_saat" type="time" class="input" id="saat_input">
+                </div>
+            </div>
+
+            <!-- NOT -->
+            <div style="margin-bottom:28px;">
+                <label class="form-label">NOT</label>
+                <textarea name="notlar" rows="3" class="input" style="resize:vertical;"
+                          placeholder="İsteğe bağlı açıklama..."></textarea>
+            </div>
+
+            <!-- BUTONLAR -->
+            <div style="display:flex;gap:12px;">
+                <a href="/dosyalar" class="btn btn-ghost" style="flex:1;justify-content:center;">İptal</a>
+                <button type="submit" class="btn btn-primary" style="flex:2;justify-content:center;font-size:14px;">
+                    💾 Kaydet &amp; Zimmetle
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Bugünün tarihi
+document.getElementById('tarih_input').value = new Date().toISOString().split('T')[0];
+const nowTime = new Date();
+document.getElementById('saat_input').value = String(nowTime.getHours()).padStart(2,'0')+':'+String(nowTime.getMinutes()).padStart(2,'0');
+
+// Sadece rakam
+document.getElementById('dosya_no').addEventListener('input', function() {
+    this.value = this.value.replace(/\D/g, '');
+});
+
+// Teslim alan seçimi
+function teslimSecildi(sel) {
+    const serbest = document.getElementById('teslim_serbest');
+    const uid = document.getElementById('teslim_uid');
+    if (sel.value === '__serbest__') {
+        serbest.style.display = 'block';
+        serbest.required = true;
+        serbest.name = 'teslim_alan';
+        sel.name = '_ignore';
+        uid.value = '';
+    } else {
+        serbest.style.display = 'none';
+        serbest.required = false;
+        serbest.name = 'teslim_alan_serbest';
+        sel.name = 'teslim_alan';
+        const opt = sel.options[sel.selectedIndex];
+        uid.value = opt.dataset.uid || '';
+    }
+}
+</script>
+{% endblock %}

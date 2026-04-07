@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% set active = "" %}
+{% block content %}
+<div style="padding:28px 32px;max-width:600px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+        <a href="/panel" style="color:var(--txt4);font-size:13px;text-decoration:none;">← Geri</a>
+    </div>
+    <div class="page-title">👤 Profilim</div>
+    <div class="page-subtitle" style="margin-bottom:24px;">Hesap bilgileri ve şifre değiştirme</div>
+
+    <!-- Profil Kartı -->
+    <div class="card" style="padding:24px;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+            <div style="width:60px;height:60px;background:var(--brand);border-radius:12px;display:flex;align-items:center;justify-content:center;color:white;font-size:26px;font-weight:800;">
+                {{ kullanici.full_name[0].upper() }}
+            </div>
+            <div>
+                <div style="font-size:18px;font-weight:700;color:var(--txt);">{{ kullanici.full_name }}</div>
+                <div style="font-size:13px;color:var(--txt4);">@{{ kullanici.username }}</div>
+                <div style="margin-top:4px;">
+                    {% if kullanici.role == 'admin' %}<span class="badge badge-red">Admin</span>
+                    {% elif kullanici.role == 'arsiv' %}<span class="badge badge-blue">Arşiv Görevlisi</span>
+                    {% else %}<span class="badge badge-gray">Görüntüleyici</span>{% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            {% for lbl,val in [('Kullanıcı Adı',kullanici.username),('Ad Soyad',kullanici.full_name),('Rol',kullanici.role),('Dahili','3622')] %}
+            <div style="padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+                <div style="font-size:10px;font-weight:700;color:var(--txt4);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">{{ lbl }}</div>
+                <div style="font-size:13px;font-weight:600;color:var(--txt);">{{ val }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Şifre Değiştir -->
+    <div class="card" style="padding:24px;">
+        <div style="font-size:14px;font-weight:700;color:var(--txt);margin-bottom:16px;display:flex;align-items:center;gap:6px;">🔑 Şifre Değiştir</div>
+
+        {% if sifre_hata %}<div class="banner banner-red" style="margin-bottom:16px;">⚠ {{ sifre_hata }}</div>{% endif %}
+        {% if sifre_basari %}<div style="padding:11px 16px;background:var(--green-bg);border:1px solid #A7F3D0;border-radius:8px;color:var(--green);font-size:13px;font-weight:600;margin-bottom:16px;">✓ {{ sifre_basari }}</div>{% endif %}
+
+        <form method="post" action="/profil/sifre">
+            <div style="display:flex;flex-direction:column;gap:14px;">
+                <div>
+                    <label class="form-label">Mevcut Şifre *</label>
+                    <input name="mevcut_sifre" type="password" class="input" placeholder="••••••••" required>
+                </div>
+                <div>
+                    <label class="form-label">Yeni Şifre *</label>
+                    <input name="yeni_sifre" type="password" class="input" placeholder="••••••••" required minlength="4">
+                </div>
+                <div>
+                    <label class="form-label">Yeni Şifre (Tekrar) *</label>
+                    <input name="yeni_sifre2" type="password" class="input" placeholder="••••••••" required minlength="4">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" style="margin-top:18px;width:100%;justify-content:center;">Şifreyi Değiştir</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

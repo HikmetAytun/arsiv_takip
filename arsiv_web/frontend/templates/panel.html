@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% set active = "panel" %}
+{% block content %}
+<div style="padding:24px 32px;">
+    <!-- Başlık -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
+        <div>
+            <h1 style="font-size:22px;font-weight:800;color:var(--txt);display:flex;align-items:center;gap:8px;" id="greet-title">🌅 Günaydın, {{ kullanici.full_name }}</h1>
+            <p style="font-size:12px;color:var(--txt4);margin-top:3px;" id="greet-sub"></p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+            {% if yeni_mesaj_var %}<a href="/mesajlar" style="display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--amber-bg);border:1px solid #FCD34D;border-radius:8px;color:var(--amber);font-size:12px;font-weight:700;text-decoration:none;">💬 Yeni Mesaj</a>{% endif %}
+            <button onclick="location.reload()" class="btn btn-ghost">↻ Yenile</button>
+        </div>
+    </div>
+
+    {% if ozet.gecikmis >= 10 %}
+    <div class="banner banner-red">
+        <span>⚠ {{ ozet.gecikmis }} dosya 10 günden fazladır teslim edilmedi!</span>
+        <a href="/en-cok-bekleyen" style="color:var(--red);font-weight:700;text-decoration:underline;">Görüntüle →</a>
+    </div>
+    {% endif %}
+
+    <!-- 4 Metrik -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;">
+        {% for icon,lbl,val,clr,bg in [
+            ('📦','TOPLAM DOSYA', ozet.toplam|default(0), '#536478','#F1F5F9'),
+            ('🏛','ARŞİVDE',      ozet.arsivde|default(0),'#0A7C4E','#E6F4EE'),
+            ('📋','ZİMMETTE',     ozet.zimmette|default(0),'#1A6FBF','#E8F1FA'),
+            ('⚠️','GECİKMİŞ',    ozet.gecikmis|default(0),'#C0392B','#FDECEA'),
+        ] %}
+        <div class="metric-card">
+            <div class="metric-strip" style="background:{{clr}};"></div>
+            <div class="metric-icon" style="background:{{bg}};">{{icon}}</div>
+            <div><div class="metric-val" style="color:{{clr}};">{{val}}</div><div class="metric-lbl">{{lbl}}</div></div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- 3 Kolon -->
+    <div style="display:grid;grid-template-columns:220px 1fr 240px;gap:14px;">
+
+        <!-- Hızlı Eylemler -->
+        <div class="card" style="padding:16px;height:fit-content;">
+            <div style="font-size:12px;font-weight:700;color:var(--txt);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;">⚡ Hızlı Eylemler</div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                {% if kullanici.role in ('admin','arsiv') %}
+                <a href="/dosya/yeni" class="btn btn-primary" style="justify-content:flex-start;width:100%;font-size:12px;">📁 Yeni Dosya Oluştur</a>
+                {% endif %}
+                {% for icon,lbl,href in [('📂','Dosya Kayıtları','/dosyalar'),('📌','Zimmettekiler','/uzerimdekiler'),('📊','İstatistikler','/istatistikler'),('⚠️','Gecikenler','/en-cok-bekleyen'),('📑','Raporlar','/raporlar')] %}
+                <a href="{{href}}" class="btn btn-ghost" style="justify-content:flex-start;width:100%;font-size:12px;">{{icon}} {{lbl}}</a>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Son Hareketler -->
+        <div class="card" style="padding:16px;">
+            <div style="font-size:12px;font-weight:700;color:var(--txt);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;">🔄 Son Hareketler</div>
+            {% if son_hareketler %}
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead><tr>
+                        {% for h in ['Dosya No','İlçe','İşlem','Personel','Tarih'] %}
+                        <th style="padding:7px 10px;text-align:left;font-size:10px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap;">{{h}}</th>
+                        {% endfor %}
+                    </tr></thead>
+                    <tbody>
+                    {% for h in son_hareketler %}
+                    <tr>
+                        <td style="padding:7px 10px;font-size:12px;font-weight:700;color:var(--txt);border-bottom:1px solid var(--border);">{{ h.orijinal_dosya_no }}</td>
+                        <td style="padding:7px 10px;font-size:12px;color:var(--txt2);border-bottom:1px solid var(--border);">{{ h.ilce }}</td>
+                        <td style="padding:7px 10px;border-bottom:1px solid var(--border);">
+                            {% set dur = h.durum|default('') %}
+                            {% if 'GECİKMİŞ' in dur %}<span class="badge badge-red">{{dur}}</span>
+                            {% elif 'ARŞİVDE' == dur %}<span class="badge badge-green">{{dur}}</span>
+                            {% elif 'ZİMMETTE' in dur %}<span class="badge badge-blue">{{dur}}</span>
+                            {% else %}<span class="badge badge-amber">{{dur}}</span>{% endif %}
+                        </td>
+                        <td style="padding:7px 10px;font-size:12px;color:var(--txt2);border-bottom:1px solid var(--border);">{{ h.teslim_alan_personel|default('—') }}</td>
+                        <td style="padding:7px 10px;font-size:11px;color:var(--txt4);border-bottom:1px solid var(--border);white-space:nowrap;">{{ h.teslim_tarihi|default('—') }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div style="text-align:center;padding:32px;color:var(--txt4);font-size:13px;">Henüz hareket yok</div>
+            {% endif %}
+        </div>
+
+        <!-- Sağ: Personel -->
+        <div class="card" style="padding:16px;">
+            <div style="font-size:12px;font-weight:700;color:var(--txt);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em;">📂 En Çok Dosyası Olan Personel</div>
+            {% if personel %}
+            {% set maks = [personel[0].zimmette|default(0),1]|max %}
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                {% for p in personel %}
+                <div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span style="font-size:12px;font-weight:500;color:var(--txt2);">{{ p.personel }}</span>
+                        <span style="font-size:11px;color:var(--txt4);">{{ p.zimmette }}</span>
+                    </div>
+                    <div style="height:4px;background:var(--border);border-radius:99px;overflow:hidden;">
+                        <div style="height:100%;background:{% if p.gecikmis > 0 %}var(--red){% else %}var(--brand){% endif %};width:{{ (p.zimmette*100//maks) }}%;border-radius:99px;"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div style="text-align:center;padding:32px;color:var(--txt4);font-size:13px;">Veri yok</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+<script>
+const h=new Date().getHours(),n=new Date();
+const days=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+const months=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+const gt = document.getElementById('greet-title');
+const gs = document.getElementById('greet-sub');
+if(gt) gt.innerHTML = (h<12?'🌅 Günaydın':h<18?'☀ İyi günler':'🌇 İyi akşamlar') + ', {{ kullanici.full_name }}';
+if(gs) gs.textContent = `${n.getDate()} ${months[n.getMonth()]} ${n.getFullYear()}, ${days[n.getDay()]} · {{ kullanici.role }} · Dahili: {{ kullanici.dahili|default('—') }}`;
+</script>
+{% endblock %}

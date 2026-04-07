@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giriş — Arşiv Takip Sistemi</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; min-height: 100vh; display: flex; }
+        .left { width: 420px; min-width: 420px; background: #1C2434; display: flex; flex-direction: column; padding: 40px 36px; }
+        .right { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; background: white; }
+        .logo-row { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+        .logo-box { width: 46px; height: 46px; background: rgba(26,111,191,0.25); border: 1px solid rgba(26,111,191,0.45); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+        .logo-ver { margin-left: auto; background: rgba(255,255,255,0.08); color: #8FA3BE; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 20px; }
+        .greet-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+        .greet-icon { width: 32px; height: 32px; background: rgba(255,255,255,0.06); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+        .greet-text { font-size: 18px; font-weight: 700; color: white; }
+        .greet-sub { font-size: 12px; color: #8FA3BE; margin-bottom: 3px; padding-left: 42px; }
+        .greet-date { font-size: 11px; color: #4A5568; padding-left: 42px; margin-bottom: 24px; }
+        .divider { height: 1px; background: rgba(255,255,255,0.07); margin-bottom: 24px; }
+        .app-name { font-size: 20px; font-weight: 800; color: white; margin-bottom: 4px; }
+        .app-org { font-size: 13px; color: #8FA3BE; margin-bottom: auto; }
+        .quote-box { background: rgba(26,111,191,0.15); border-left: 3px solid #1A6FBF; border-radius: 0 8px 8px 0; padding: 14px 16px; margin-top: 36px; min-height: 70px; transition: opacity 0.5s; }
+        .quote-text { font-size: 13px; color: #A0AEC0; font-style: italic; line-height: 1.6; }
+        .footer-row { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; }
+        .footer-copy { font-size: 11px; color: #4A5568; }
+        .footer-tel { font-size: 11px; color: #4A5568; }
+        .form-wrap { width: 100%; max-width: 400px; }
+        .form-title { font-size: 26px; font-weight: 800; color: #1A2332; margin-bottom: 6px; }
+        .form-sub { font-size: 13px; color: #8FA3BE; margin-bottom: 32px; }
+        .field { margin-bottom: 18px; }
+        .field-label { display: block; font-size: 11px; font-weight: 700; color: #536478; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
+        .field-input { width: 100%; background: #F7F8FA; border: 1.5px solid #DDE1E7; border-radius: 10px; padding: 13px 16px; font-size: 14px; font-family: inherit; color: #1A2332; outline: none; transition: border-color 0.15s; }
+        .field-input:focus { border-color: #1A6FBF; background: white; box-shadow: 0 0 0 3px rgba(26,111,191,0.1); }
+        .submit-btn { width: 100%; background: #1A2332; color: white; border: none; border-radius: 10px; padding: 14px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 8px; transition: background 0.15s; }
+        .submit-btn:hover { background: #0F172A; }
+        .error-box { background: #FDECEA; border: 1px solid #FECACA; border-radius: 8px; padding: 11px 14px; color: #C0392B; font-size: 13px; margin-bottom: 18px; }
+        .right-footer { margin-top: 24px; font-size: 12px; color: #8FA3BE; }
+    </style>
+</head>
+<body>
+<div class="left">
+    <div class="logo-row">
+        <div class="logo-box">🗂</div>
+        <div class="logo-ver">v3.0</div>
+    </div>
+    <div class="greet-row">
+        <div class="greet-icon" id="gi">🌅</div>
+        <div class="greet-text" id="gt">Günaydın</div>
+    </div>
+    <div class="greet-sub">Güzel bir gün olsun.</div>
+    <div class="greet-date" id="gd"></div>
+    <div class="divider"></div>
+    <div class="app-name">Arşiv Takip Sistemi</div>
+    <div class="app-org">T.C. İzmir Büyükşehir Belediyesi</div>
+    <div class="quote-box" id="qbox">
+        <div class="quote-text" id="qt"></div>
+    </div>
+    <div class="footer-row">
+        <div class="footer-copy">© 2026 Hikmet Aytun</div>
+        <div class="footer-tel">📞 Dahili: 3622</div>
+    </div>
+</div>
+<div class="right">
+    <div class="form-wrap">
+        <div class="form-title">Hoş Geldiniz</div>
+        <div class="form-sub">Sisteme erişmek için giriş yapın.</div>
+        {% if hata %}<div class="error-box">⚠ {{ hata }}</div>{% endif %}
+        <form method="post" action="/giris">
+            <div class="field">
+                <label class="field-label">Kullanıcı Adı</label>
+                <input class="field-input" name="username" type="text" placeholder="kullaniciadi" autocomplete="username" required>
+            </div>
+            <div class="field">
+                <label class="field-label">Şifre</label>
+                <input class="field-input" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required>
+            </div>
+            <button class="submit-btn" type="submit">Giriş Yap →</button>
+        </form>
+        <div class="right-footer">📞 Destek için Dahili: 3622</div>
+    </div>
+</div>
+<script>
+const SOZLER = [
+    '"Her şeyin bir yeri olmalı ve her şey yerinde olmalıdır."',
+    '"Düzenli bir masa, düzenli bir zihnin yansımasıdır."',
+    '"Belge yönetimi, kurumsal hafızanın temelidir."',
+    '"İyi bir arşiv, geçmişi geleceğe taşır."',
+    '"Kayıt tutmak, sorumluluğun en somut göstergesidir."',
+    '"Organize olmak bir beceri değil, bir alışkanlıktır."',
+    '"Doğru bilgiye zamanında ulaşmak, verimliliğin sırrıdır."',
+    '"Arşiv, kurumun bellekidir; bellek olmadan kimlik olmaz."',
+    '"Küçük detaylar büyük farklar yaratır."',
+    '"Sistematik çalışmak, başarının temel taşıdır."',
+];
+function sozGoster() {
+    const q = document.getElementById('qt');
+    const b = document.getElementById('qbox');
+    b.style.opacity = '0';
+    setTimeout(() => {
+        q.textContent = SOZLER[Math.floor(Math.random() * SOZLER.length)];
+        b.style.opacity = '1';
+    }, 500);
+}
+sozGoster();
+setInterval(sozGoster, 8000);
+
+const h = new Date().getHours();
+document.getElementById('gi').textContent = h<12?'🌅':h<18?'☀':'🌇';
+document.getElementById('gt').textContent = h<12?'Günaydın':h<18?'İyi günler':'İyi akşamlar';
+const days=['Pazar','Pazartesi','Salı','Çarşamba','Perşembe','Cuma','Cumartesi'];
+const months=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+const n=new Date();
+document.getElementById('gd').textContent=`${n.getDate()} ${months[n.getMonth()]} ${n.getFullYear()}, ${days[n.getDay()]}`;
+</script>
+</body>
+</html>

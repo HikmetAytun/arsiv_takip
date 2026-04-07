@@ -1,0 +1,481 @@
+{% extends "base.html" %}
+{% set active = "dosyalar" %}
+{% block extra_css %}
+.ctx-item{padding:8px 14px;border-radius:7px;font-size:13px;color:var(--txt2);cursor:pointer;display:flex;align-items:center;gap:8px;}
+.ctx-item:hover{background:var(--blue-bg);color:var(--brand);}
+.tablo-tr{border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.08s;}
+.tablo-tr:hover{background:var(--surface2);}
+.tablo-tr.secili{outline:2px solid var(--brand);outline-offset:-1px;background:var(--blue-bg)!important;}
+{% endblock %}
+
+{% block content %}
+<div style="padding:20px 28px;">
+
+    <!-- Başlık -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div>
+            <div class="page-title">Dosya Kayıtları</div>
+            <div class="page-subtitle">Geliştirici: Hikmet Aytun · © 2026 Hikmet Aytun</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button onclick="location.reload()" class="btn btn-ghost">↻ Yenile</button>
+            {% if kullanici.role in ('admin','arsiv') %}
+            <a href="/dosya/yeni" class="btn btn-primary">📁 Yeni Dosya</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Filtre -->
+    <form method="get" style="display:flex;gap:8px;align-items:center;margin:14px 0;flex-wrap:wrap;">
+        <div style="flex:1;min-width:240px;position:relative;">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--txt4);">🔍</span>
+            <input name="ara" value="{{ ara }}" type="search" class="input"
+                   placeholder="Dosya no, ilçe, ada, parsel veya personel..." style="padding-left:32px;">
+        </div>
+        <select name="ilce" class="input" style="width:150px;">
+            <option value="">Tüm İlçeler</option>
+            {% for i in ilceler %}<option value="{{ i }}" {% if i==ilce_sec %}selected{% endif %}>{{ i }}</option>{% endfor %}
+        </select>
+        <select name="durum" class="input" style="width:160px;">
+            <option value="">Tüm Durumlar</option>
+            <option value="arşivde"    {% if 'arşivde'    in durum_sec.lower() %}selected{% endif %}>Arşivde</option>
+            <option value="zimmette"   {% if 'zimmette'   in durum_sec.lower() %}selected{% endif %}>Zimmette</option>
+            <option value="gecikmiş"   {% if 'gecikmis'   in durum_sec.lower() or 'gecikmiş' in durum_sec.lower() %}selected{% endif %}>Gecikmiş</option>
+            <option value="gönderildi" {% if 'gönderildi' in durum_sec.lower() %}selected{% endif %}>Gönderildi</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Ara</button>
+        <a href="/dosyalar" class="btn btn-ghost">Tümü</a>
+    </form>
+
+    <!-- Toplu işlem çubuğu -->
+    {% if kullanici.role in ('admin','arsiv') %}
+    <div id="toplu-bar" style="display:none;align-items:center;gap:10px;padding:9px 14px;
+         background:var(--blue-bg);border:1px solid #BFDBFE;border-radius:8px;margin-bottom:10px;">
+        <span id="secili-sayi" style="font-size:13px;font-weight:700;color:var(--brand);">0 seçili</span>
+        <button onclick="topluSilModal()" class="btn btn-danger btn-sm">🗑 Seçilenleri Sil</button>
+        <button onclick="secimiTemizle()" class="btn btn-ghost btn-sm">✕ İptal</button>
+    </div>
+    {% endif %}
+
+    <!-- Tablo -->
+    <div class="card" style="overflow:hidden;">
+        <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;min-width:900px;">
+                <thead>
+                    <tr style="background:var(--surface2);border-bottom:2px solid var(--border);">
+                        {% if kullanici.role in ('admin','arsiv') %}
+                        <th style="width:38px;padding:10px 8px;text-align:center;">
+                            <input type="checkbox" id="cb-all" style="cursor:pointer;width:15px;height:15px;"
+                                   onchange="tumuSec(this.checked)">
+                        </th>
+                        {% endif %}
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">ID</th>
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">İLÇE</th>
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">DOSYA NO</th>
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">ADA</th>
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">PARSEL</th>
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">TESLİM ALAN</th>
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">DAHİLİ</th>
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">ARŞİV GÖR.</th>
+                        <th style="padding:10px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">TARİH</th>
+                        <th style="padding:10px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">DURUM</th>
+                        <th style="padding:10px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;">BEKLEME</th>
+                    </tr>
+                </thead>
+                <tbody id="dosya-tbody">
+                {% for d in dosyalar %}
+                {% set dur = d.durum|default('') %}
+                <tr class="tablo-tr"
+                    id="tr-{{ d.file_id }}"
+                    data-id="{{ d.file_id }}"
+                    data-dosyano="{{ d.orijinal_dosya_no }}"
+                    data-durum="{{ dur }}"
+                    style="{% if 'GECİKMİŞ' in dur %}background:#FFF5F5;{% elif 'GÖNDERİLDİ' in dur %}background:#FFFBEB;{% elif 'ZİMMETTE' in dur %}background:#F0F7FF;{% endif %}">
+                    {% if kullanici.role in ('admin','arsiv') %}
+                    <td style="padding:9px 8px;text-align:center;" onclick="event.stopPropagation()">
+                        <input type="checkbox" class="row-cb" value="{{ d.file_id }}"
+                               style="cursor:pointer;width:15px;height:15px;" onchange="cbDegisti()">
+                    </td>
+                    {% endif %}
+                    <td style="padding:9px 10px;font-size:12px;color:var(--txt4);">{{ d.file_id }}</td>
+                    <td style="padding:9px 10px;font-size:13px;font-weight:600;color:var(--txt2);">{{ d.ilce }}</td>
+                    <td style="padding:9px 10px;font-size:13px;font-weight:700;color:var(--txt);">{{ d.orijinal_dosya_no }}</td>
+                    <td style="padding:9px 10px;font-size:13px;color:var(--txt2);">{{ d.ada|default('') }}</td>
+                    <td style="padding:9px 10px;font-size:13px;color:var(--txt2);">{{ d.parsel|default('') }}</td>
+                    <td style="padding:9px 10px;font-size:13px;font-weight:500;color:var(--txt2);">{{ d.teslim_alan_personel|default('—') }}</td>
+                    <td style="padding:9px 10px;font-size:12px;color:var(--brand);">
+                        {% if d.teslim_alan_dahili %}📞 {{ d.teslim_alan_dahili }}{% else %}—{% endif %}
+                    </td>
+                    <td style="padding:9px 10px;font-size:12px;color:var(--txt3);">{{ d.veren_arsiv_gorevlisi|default('—') }}</td>
+                    <td style="padding:9px 10px;font-size:12px;color:var(--txt4);">{{ d.teslim_tarihi|default('—') }}</td>
+                    <td style="padding:9px 10px;text-align:center;">
+                        {% if 'GECİKMİŞ' in dur %}<span class="badge badge-red">{{ dur }}</span>
+                        {% elif dur == 'ARŞİVDE' %}<span class="badge badge-green">{{ dur }}</span>
+                        {% elif 'ZİMMETTE' in dur %}<span class="badge badge-blue">{{ dur }}</span>
+                        {% elif 'GÖNDERİLDİ' in dur %}<span class="badge badge-amber">{{ dur }}</span>
+                        {% else %}<span class="badge badge-gray">{{ dur }}</span>{% endif %}
+                    </td>
+                    <td style="padding:9px 10px;text-align:center;font-size:13px;font-weight:700;
+                               color:{% if d.bekleme_gun and d.bekleme_gun >= 10 %}var(--red){% else %}var(--txt3){% endif %};">
+                        {{ d.bekleme_gun|default(0) }}g
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="{% if kullanici.role in ('admin','arsiv') %}12{% else %}11{% endif %}"
+                        style="padding:48px;text-align:center;color:var(--txt4);">
+                        {% if ara or ilce_sec or durum_sec %}🔍 Sonuç bulunamadı{% else %}📭 Henüz dosya kaydı yok{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Aksiyon Butonları (tablo altında, rol bazlı) -->
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center;">
+        <div style="font-size:12px;color:var(--txt4);margin-right:4px;" id="secim-bilgi">— Bir dosyaya tıklayın —</div>
+        {% if kullanici.role in ('admin','arsiv') %}
+        <button onclick="btnArsiveGonder()" class="btn btn-amber btn-sm">📤 Arşive Gönder</button>
+        <button onclick="btnArsiveAl()" class="btn btn-success btn-sm">✅ Arşive Al</button>
+        <button onclick="btnYenidenZimmet()" class="btn btn-ghost btn-sm" style="border-color:var(--brand);color:var(--brand);">🔄 Yeniden Zimmetle</button>
+        {% endif %}
+        <button onclick="btnGecmis()" class="btn btn-ghost btn-sm">📜 Hareket Geçmişi</button>
+        <button onclick="btnKopyala()" class="btn btn-ghost btn-sm">📋 Dosya No Kopyala</button>
+    </div>
+
+    <!-- Pagination + özet -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+        <div style="font-size:12px;color:var(--txt4);">
+            Toplam <strong>{{ toplam }}</strong> kayıt
+            {% if toplam_sayfa > 1 %} · Sayfa {{ sayfa_no }}/{{ toplam_sayfa }}{% endif %}
+        </div>
+        {% if toplam_sayfa > 1 %}
+        <div style="display:flex;gap:4px;align-items:center;">
+            {% if sayfa_no > 1 %}
+            <a href="?sayfa={{ sayfa_no-1 }}&ara={{ ara }}&ilce={{ ilce_sec }}&durum={{ durum_sec }}" class="btn btn-ghost btn-sm">← Önceki</a>
+            {% endif %}
+            {% for p in range(1, toplam_sayfa+1) %}
+            {% if p == sayfa_no %}
+            <span style="padding:5px 10px;background:var(--brand);color:white;border-radius:6px;font-size:12px;font-weight:700;">{{ p }}</span>
+            {% elif p <= 2 or p >= toplam_sayfa-1 or (p >= sayfa_no-1 and p <= sayfa_no+1) %}
+            <a href="?sayfa={{ p }}&ara={{ ara }}&ilce={{ ilce_sec }}&durum={{ durum_sec }}"
+               style="padding:5px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--txt2);text-decoration:none;">{{ p }}</a>
+            {% elif p == 3 or p == toplam_sayfa-2 %}
+            <span style="color:var(--txt4);font-size:12px;">…</span>
+            {% endif %}
+            {% endfor %}
+            {% if sayfa_no < toplam_sayfa %}
+            <a href="?sayfa={{ sayfa_no+1 }}&ara={{ ara }}&ilce={{ ilce_sec }}&durum={{ durum_sec }}" class="btn btn-ghost btn-sm">Sonraki →</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Sağ tık menüsü -->
+<div id="ctx-menu" style="display:none;position:fixed;z-index:500;background:var(--surface);
+     border:1px solid var(--border);border-radius:10px;padding:6px;
+     box-shadow:0 8px 24px rgba(0,0,0,0.15);min-width:200px;">
+    {% if kullanici.role in ('admin','arsiv') %}
+    <div class="ctx-item" id="ctx-gonder"  onclick="btnArsiveGonder()">📤 Arşive Gönder</div>
+    <div class="ctx-item" id="ctx-al"      onclick="btnArsiveAl()">✅ Arşive Al</div>
+    <div class="ctx-item" id="ctx-zimmet"  onclick="btnYenidenZimmet()">🔄 Yeniden Zimmetle</div>
+    <div style="height:1px;background:var(--border);margin:4px 0;"></div>
+    {% endif %}
+    <div class="ctx-item" onclick="btnGecmis()">📜 Hareket Geçmişi</div>
+    <div class="ctx-item" onclick="btnKopyala()">📋 Dosya No Kopyala</div>
+</div>
+
+<!-- Hareket Geçmişi Modal (masaüstü gibi) -->
+<div id="gecmis-modal" class="modal-overlay">
+    <div class="modal" style="max-width:720px;padding:0;">
+        <!-- Başlık -->
+        <div style="display:flex;align-items:center;gap:14px;padding:20px 24px;border-bottom:1px solid var(--border);">
+            <div style="width:44px;height:44px;background:var(--blue-bg);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">📋</div>
+            <div>
+                <div style="font-size:16px;font-weight:800;color:var(--txt);">Hareket Geçmişi</div>
+                <div id="gecmis-dosyano" style="font-size:12px;color:var(--txt4);margin-top:1px;"></div>
+            </div>
+            <button onclick="document.getElementById('gecmis-modal').classList.remove('open')"
+                    style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:var(--txt4);">✕</button>
+        </div>
+        <!-- Tablo -->
+        <div style="padding:16px 24px;overflow-x:auto;" id="gecmis-tablo-wrap">
+            <div style="text-align:center;padding:32px;color:var(--txt4);">Yükleniyor...</div>
+        </div>
+        <!-- Alt bilgi -->
+        <div id="gecmis-footer" style="padding:12px 24px;border-top:1px solid var(--border);
+             display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:12px;color:var(--txt4);" id="gecmis-ozet"></span>
+            <button onclick="document.getElementById('gecmis-modal').classList.remove('open')"
+                    class="btn btn-ghost btn-sm">Kapat</button>
+        </div>
+    </div>
+</div>
+
+<!-- Yeniden Zimmetle Modal -->
+<div id="zimmet-modal" class="modal-overlay">
+    <div class="modal" style="max-width:420px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div class="modal-title" style="margin:0;">🔄 Yeniden Zimmetle</div>
+            <button onclick="document.getElementById('zimmet-modal').classList.remove('open')"
+                    style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--txt4);">✕</button>
+        </div>
+        <p id="zimmet-bilgi" style="font-size:13px;color:var(--txt4);margin-bottom:14px;"></p>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+            <div>
+                <label class="form-label">TESLİM ALAN *</label>
+                <select id="zimmet-kisi" class="input">
+                    <option value="">— Kişi seçin —</option>
+                    {% for u in kullanicilar %}
+                    <option value="{{ u.full_name }}" data-uid="{{ u.id }}">{{ u.full_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label">NOT</label>
+                <input id="zimmet-not" type="text" class="input" placeholder="İsteğe bağlı...">
+            </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:18px;">
+            <button onclick="document.getElementById('zimmet-modal').classList.remove('open')"
+                    class="btn btn-ghost" style="flex:1;">İptal</button>
+            <button onclick="zimmetKaydet()" class="btn btn-primary" style="flex:1;">✓ Zimmetle</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toplu Silme Neden Modal -->
+<div id="sil-modal" class="modal-overlay">
+    <div class="modal" style="max-width:400px;">
+        <div class="modal-title">🗑 Silme Nedeni</div>
+        <p id="sil-bilgi" style="font-size:13px;color:var(--txt4);margin-bottom:14px;"></p>
+        <select id="sil-neden-sec" class="input" onchange="nedenSecildi(this)" style="margin-bottom:8px;">
+            <option value="">— Neden seçin —</option>
+            <option value="Yanlış kayıt girildi">Yanlış kayıt girildi</option>
+            <option value="Dosya iptal edildi">Dosya iptal edildi</option>
+            <option value="Mükerrer kayıt">Mükerrer kayıt</option>
+            <option value="Arşiv düzenlemesi">Arşiv düzenlemesi</option>
+            <option value="Diğer">Diğer (açıklayın)</option>
+        </select>
+        <input id="sil-neden-txt" type="text" class="input" placeholder="Açıklama..." style="display:none;">
+        <div style="display:flex;gap:10px;margin-top:16px;">
+            <button onclick="document.getElementById('sil-modal').classList.remove('open')" class="btn btn-ghost" style="flex:1;">İptal</button>
+            <button onclick="silOnay()" class="btn btn-danger" style="flex:1;">Sil</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── SEÇİM ─────────────────────────────────────────────────────
+let secili = null; // {id, dosyaNo, durum}
+
+function satirSec(tr) {
+    document.querySelectorAll('.tablo-tr').forEach(r => r.classList.remove('secili'));
+    tr.classList.add('secili');
+    secili = { id: tr.dataset.id, dosyaNo: tr.dataset.dosyano, durum: tr.dataset.durum || '' };
+    document.getElementById('secim-bilgi').innerHTML =
+        '<strong style="color:var(--brand);">✓ Seçili:</strong> ' + secili.dosyaNo + ' — ' + secili.durum;
+}
+
+// Satır tıklama
+document.querySelectorAll('.tablo-tr').forEach(tr => {
+    tr.addEventListener('click', e => {
+        if (e.target.closest('input[type="checkbox"]')) return;
+        satirSec(tr);
+    });
+    tr.addEventListener('dblclick', e => {
+        if (e.target.closest('input[type="checkbox"]')) return;
+        satirSec(tr);
+        btnGecmis();
+    });
+    tr.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        satirSec(tr);
+        const menu = document.getElementById('ctx-menu');
+        // Durum bazlı görünürlük
+        const dur = tr.dataset.durum || '';
+        const cg = document.getElementById('ctx-gonder');
+        const ca = document.getElementById('ctx-al');
+        const cz = document.getElementById('ctx-zimmet');
+        if (cg) cg.style.display = (dur.includes('ZİMMETTE') || dur.includes('GECİKMİŞ')) ? '' : 'none';
+        if (ca) ca.style.display = dur.includes('GÖNDERİLDİ') ? '' : 'none';
+        if (cz) cz.style.display = dur === 'ARŞİVDE' ? '' : 'none';
+        menu.style.left    = Math.min(e.clientX, window.innerWidth  - 210) + 'px';
+        menu.style.top     = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+        menu.style.display = 'block';
+    });
+});
+document.addEventListener('click', () => document.getElementById('ctx-menu').style.display = 'none');
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('ctx-menu').style.display = 'none'; });
+
+// ── AKSİYON FONKSİYONLARI ─────────────────────────────────────
+function kontrol(beklenenDurum) {
+    if (!secili) { bildirim('Önce bir dosyaya tıklayın', 'hata'); return false; }
+    if (beklenenDurum && !secili.durum.includes(beklenenDurum)) {
+        bildirim('Bu işlem "' + beklenenDurum + '" durumundaki dosyalar için geçerlidir', 'hata'); return false;
+    }
+    return true;
+}
+
+async function btnArsiveGonder() {
+    if (!kontrol()) return;
+    if (!confirm('Dosya No ' + secili.dosyaNo + ' arşive gönderilecek. Devam?')) return;
+    const r = await apiPost('/api/arsive-gonder/' + secili.id);
+    r.ok ? (bildirim('✓ Arşive gönderildi'), setTimeout(() => location.reload(), 800)) : bildirim(r.detail || 'Hata', 'hata');
+}
+
+async function btnArsiveAl() {
+    if (!kontrol()) return;
+    if (!confirm('Dosya No ' + secili.dosyaNo + ' arşive alınacak. Devam?')) return;
+    const r = await apiPost('/api/arsive-al/' + secili.id);
+    r.ok ? (bildirim('✓ Arşive alındı'), setTimeout(() => location.reload(), 800)) : bildirim(r.detail || 'Hata', 'hata');
+}
+
+function btnYenidenZimmet() {
+    if (!kontrol()) return;
+    document.getElementById('zimmet-bilgi').textContent = 'Dosya No: ' + secili.dosyaNo;
+    document.getElementById('zimmet-kisi').value = '';
+    document.getElementById('zimmet-not').value = '';
+    document.getElementById('zimmet-modal').classList.add('open');
+}
+
+async function zimmetKaydet() {
+    const sel  = document.getElementById('zimmet-kisi');
+    const isim = sel.value;
+    const uid  = sel.options[sel.selectedIndex]?.dataset?.uid || '';
+    const not_ = document.getElementById('zimmet-not').value;
+    if (!isim) { bildirim('Kişi seçin', 'hata'); return; }
+    document.getElementById('zimmet-modal').classList.remove('open');
+    loading(true, 'Zimmetleniyor...');
+    const fd = new FormData();
+    fd.append('teslim_alan', isim);
+    if (uid) fd.append('teslim_alan_user_id', uid);
+    fd.append('notlar', not_);
+    const r = await fetch('/api/yeniden-zimmetle/' + secili.id, {method:'POST', body:fd});
+    loading(false);
+    const d = await r.json();
+    d.ok ? (bildirim('✓ Zimmetlendi'), setTimeout(() => location.reload(), 800)) : bildirim(d.hata || 'Hata', 'hata');
+}
+
+async function btnGecmis() {
+    if (!secili) { bildirim('Önce bir dosyaya tıklayın', 'hata'); return; }
+    document.getElementById('gecmis-dosyano').textContent = secili.dosyaNo;
+    document.getElementById('gecmis-tablo-wrap').innerHTML = '<div style="text-align:center;padding:32px;color:var(--txt4);">Yükleniyor...</div>';
+    document.getElementById('gecmis-ozet').textContent = '';
+    document.getElementById('gecmis-modal').classList.add('open');
+    try {
+        const url = '/api/dosya-gecmis/' + secili.id;
+        const r = await fetch(url);
+        const d = await r.json();
+        console.log('Geçmiş API yanıtı:', url, d);
+        if (!d.gecmis || d.gecmis.length === 0) {
+            const hata = d.hata || 'Hareket kaydı bulunamadı.';
+            document.getElementById('gecmis-tablo-wrap').innerHTML =
+                '<div style="text-align:center;padding:32px;color:var(--txt4);">' + hata + '</div>';
+            return;
+        }
+        const acik = d.gecmis.filter(h => !h.iade_tarihi).length;
+        // Masaüstü gibi tablo
+        let html = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="background:var(--surface2);">
+                <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);border-bottom:2px solid var(--border);border-right:1px solid var(--border);width:40px;">#</th>
+                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);border-bottom:2px solid var(--border);border-right:1px solid var(--border);">TESLİM TARİH</th>
+                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);border-bottom:2px solid var(--border);border-right:1px solid var(--border);">TESLİM ALAN</th>
+                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);border-bottom:2px solid var(--border);border-right:1px solid var(--border);">ARŞİV GÖREVLİ</th>
+                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);border-bottom:2px solid var(--border);border-right:1px solid var(--border);">İADE TARİHİ</th>
+                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);border-bottom:2px solid var(--border);border-right:1px solid var(--border);">İADE ALAN</th>
+                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);border-bottom:2px solid var(--border);border-right:1px solid var(--border);">NOTLAR</th>
+                <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);border-bottom:2px solid var(--border);">DURUM</th>
+            </tr></thead><tbody>`;
+        d.gecmis.forEach((h, i) => {
+            const isAcik      = !h.iade_tarihi;
+            const isGonderildi = h.arsive_gonderildi === 1 || h.arsive_gonderildi === true;
+            let rowBg = i%2===0 ? '' : 'background:#F8FAFC;';
+            if (isAcik && isGonderildi) rowBg = 'background:#FFFBEB;'; // Gönderilmiş bekleyen - sarı
+            else if (isAcik)            rowBg = 'background:#EFF6FF;'; // Açık zimmet - mavi
+            const durum = isAcik && isGonderildi ? '📤 Gönderildi'
+                        : isAcik                 ? '🔵 Zimmette'
+                        :                          '✅ İade';
+            html += `<tr style="${rowBg}border-bottom:1px solid var(--border);">
+                <td style="padding:9px 12px;text-align:center;font-weight:700;color:var(--txt4);border-right:1px solid var(--border);">${i+1}</td>
+                <td style="padding:9px 12px;color:var(--txt2);border-right:1px solid var(--border);">${h.teslim_tarihi||'—'}</td>
+                <td style="padding:9px 12px;font-weight:${isAcik?700:400};color:${isAcik?'var(--brand)':'var(--txt2)'};border-right:1px solid var(--border);">${h.teslim_alan_personel||'—'}</td>
+                <td style="padding:9px 12px;color:var(--txt3);border-right:1px solid var(--border);">${h.veren_arsiv_gorevlisi||'—'}</td>
+                <td style="padding:9px 12px;color:${h.iade_tarihi?'var(--green)':'var(--txt4)'};border-right:1px solid var(--border);">${h.iade_tarihi||'—'}</td>
+                <td style="padding:9px 12px;color:var(--txt3);border-right:1px solid var(--border);">${h.iade_alan_gorevli||'—'}</td>
+                <td style="padding:9px 12px;font-size:12px;color:var(--txt4);border-right:1px solid var(--border);">${h.notlar||'—'}</td>
+                <td style="padding:9px 12px;text-align:center;font-size:11px;font-weight:600;">${durum}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        document.getElementById('gecmis-tablo-wrap').innerHTML = html;
+        // Alt bilgi — masaüstü gibi
+        const ozetEl = document.getElementById('gecmis-ozet');
+        if (acik > 0) {
+            ozetEl.innerHTML = `Toplam ${d.gecmis.length} hareket &nbsp;·&nbsp; <span style="display:inline-flex;align-items:center;gap:5px;color:var(--amber);font-weight:600;"><span style="width:10px;height:10px;background:var(--amber);border-radius:50%;display:inline-block;"></span>${acik} açık zimmet</span>`;
+        } else {
+            ozetEl.innerHTML = `Toplam ${d.gecmis.length} hareket &nbsp;·&nbsp; <span style="color:var(--green);font-weight:600;">✓ Arşivde</span>`;
+        }
+    } catch(e) {
+        document.getElementById('gecmis-tablo-wrap').innerHTML = '<div style="color:var(--red);padding:16px;">Yüklenemedi.</div>';
+    }
+}
+
+function btnKopyala() {
+    if (!secili) { bildirim('Önce bir dosyaya tıklayın', 'hata'); return; }
+    navigator.clipboard.writeText(secili.dosyaNo).then(() => bildirim('✓ ' + secili.dosyaNo + ' kopyalandı'));
+}
+
+// ── CHECKBOX ──────────────────────────────────────────────────
+function tumuSec(checked) {
+    document.querySelectorAll('.row-cb').forEach(c => c.checked = checked);
+    cbDegisti();
+}
+function cbDegisti() {
+    const n   = document.querySelectorAll('.row-cb:checked').length;
+    const bar = document.getElementById('toplu-bar');
+    if (!bar) return;
+    bar.style.display = n > 0 ? 'flex' : 'none';
+    document.getElementById('secili-sayi').textContent = n + ' dosya seçili';
+}
+function secimiTemizle() {
+    document.querySelectorAll('.row-cb').forEach(c => c.checked = false);
+    const cb = document.getElementById('cb-all');
+    if (cb) cb.checked = false;
+    cbDegisti();
+}
+
+let _silIds = [];
+function topluSilModal() {
+    _silIds = [...document.querySelectorAll('.row-cb:checked')].map(c => c.value);
+    if (!_silIds.length) return;
+    document.getElementById('sil-bilgi').textContent = _silIds.length + ' dosya kalıcı olarak silinecek.';
+    document.getElementById('sil-neden-sec').value = '';
+    document.getElementById('sil-neden-txt').style.display = 'none';
+    document.getElementById('sil-modal').classList.add('open');
+}
+function nedenSecildi(sel) {
+    const txt = document.getElementById('sil-neden-txt');
+    txt.style.display = sel.value === 'Diğer' ? '' : 'none';
+}
+async function silOnay() {
+    const sec   = document.getElementById('sil-neden-sec').value;
+    const txt   = document.getElementById('sil-neden-txt').value.trim();
+    const neden = sec === 'Diğer' ? txt : sec;
+    if (!neden) { bildirim('Neden seçin', 'hata'); return; }
+    document.getElementById('sil-modal').classList.remove('open');
+    const r = await apiPost('/api/toplu-sil', { ids: _silIds.join(','), neden });
+    r.ok ? (bildirim('✓ ' + r.silinen + ' dosya silindi'), setTimeout(() => location.reload(), 800))
+          : bildirim('Hata: ' + (r.hata||''), 'hata');
+}
+
+// Yeni eklendi bildirimi
+const urlP = new URLSearchParams(location.search);
+if (urlP.get('mesaj') === 'eklendi') bildirim('✓ Dosya eklendi');
+</script>
+{% endblock %}

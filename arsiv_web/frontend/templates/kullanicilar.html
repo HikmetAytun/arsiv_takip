@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% set active = "kullanicilar" %}
+{% block content %}
+<div style="padding:28px 32px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <div>
+            <div class="page-title">Kullanıcı Yönetimi</div>
+            <div class="page-subtitle">Sistem kullanıcıları, roller ve şifre yönetimi</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button onclick="document.getElementById('ekle_modal').classList.add('open')" class="btn btn-primary">+ Yeni Kullanıcı</button>
+            <button onclick="location.reload()" class="btn btn-ghost">↻ Yenile</button>
+        </div>
+    </div>
+
+    {% if hata %}<div class="banner banner-red" style="margin-bottom:16px;">⚠ {{ hata }}</div>{% endif %}
+    {% if basari %}<div style="padding:11px 16px;background:var(--green-bg);border:1px solid #A7F3D0;border-radius:8px;color:var(--green);font-size:13px;font-weight:600;margin-bottom:16px;">✓ {{ basari }}</div>{% endif %}
+
+    <div class="card">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--txt);">👥 Kullanıcı Listesi</div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>USERNAME</th>
+                        <th>AD SOYAD</th>
+                        <th>DAHİLİ</th>
+                        <th>ROL</th>
+                        <th style="text-align:center;">DURUM</th>
+                        <th style="text-align:center;">İŞLEMLER</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for u in kullanicilar %}
+                <tr>
+                    <td style="color:var(--txt4);">{{ u.id }}</td>
+                    <td style="font-weight:600;">{{ u.username }}</td>
+                    <td>{{ u.full_name }}</td>
+                    <td style="color:var(--txt3);">{{ u.dahili|default('')  or '—' }}</td>
+                    <td>
+                        {% if u.role == 'admin' %}<span class="badge badge-red">Admin</span>
+                        {% elif u.role == 'arsiv' %}<span class="badge badge-blue">Arşiv Görevlisi</span>
+                        {% else %}<span class="badge badge-gray">Görüntüleyici</span>{% endif %}
+                    </td>
+                    <td style="text-align:center;">
+                        {% if u.active %}<span class="badge badge-green">✓ Aktif</span>
+                        {% else %}<span class="badge badge-red">✗ Pasif</span>{% endif %}
+                    </td>
+                    <td style="text-align:center;">
+                        <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;">
+                            <!-- Düzenle -->
+                            <button onclick="duzenleAc({{ u.id }},'{{ u.full_name }}','{{ u.role }}','{{ u.dahili|default('') }}','{{ u.username }}')"
+                                    class="btn btn-ghost btn-sm">✏ Düzenle</button>
+                            <!-- Aktif/Pasif -->
+                            <form method="post" action="/kullanici/{{ u.id }}/durum" style="display:inline;">
+                                <input type="hidden" name="aktif" value="{{ 0 if u.active else 1 }}">
+                                <button type="submit" class="btn btn-sm"
+                                    style="background:{% if u.active %}var(--red-bg){% else %}var(--green-bg){% endif %};
+                                           color:{% if u.active %}var(--red){% else %}var(--green){% endif %};
+                                           border:1px solid {% if u.active %}#FECACA{% else %}#A7F3D0{% endif %};">
+                                    {% if u.active %}Pasif Yap{% else %}Aktif Yap{% endif %}
+                                </button>
+                            </form>
+                            <!-- Şifre -->
+                            <button onclick="sifreAc({{ u.id }},'{{ u.full_name }}')"
+                                    class="btn btn-sm" style="background:var(--blue-bg);color:var(--brand);border:1px solid #BFDBFE;">
+                                🔑 Şifre
+                            </button>
+                            <!-- Kalıcı Pasif -->
+                            {% if u.username != 'admin' and u.active %}
+                            <form method="post" action="/kullanici/{{ u.id }}/sil" style="display:inline;"
+                                  onsubmit="return confirm('{{ u.full_name }} kullanıcısı sisteme giremez hale gelecek. Devam edilsin mi?');">
+                                <button type="submit" class="btn btn-sm"
+                                    style="background:var(--red-bg);color:var(--red);border:1px solid #FECACA;">
+                                    ⛔ Devre Dışı
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Yeni Kullanıcı Modal -->
+<div id="ekle_modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-title">Yeni Kullanıcı Ekle</div>
+        <form method="post" action="/kullanici/ekle">
+            <div style="display:flex;flex-direction:column;gap:13px;">
+                <div>
+                    <label class="form-label">Kullanıcı Adı *</label>
+                    <input name="username" class="input" placeholder="kullaniciadi" required>
+                </div>
+                <div>
+                    <label class="form-label">Ad Soyad *</label>
+                    <input name="full_name" class="input" placeholder="Ad Soyad" required>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div>
+                        <label class="form-label">Şifre *</label>
+                        <input name="password" type="password" class="input" placeholder="••••••••" required>
+                    </div>
+                    <div>
+                        <label class="form-label">Dahili No</label>
+                        <input name="dahili" type="text" class="input" placeholder="örn: 3622">
+                    </div>
+                </div>
+                <div>
+                    <label class="form-label">Rol *</label>
+                    <select name="role" class="input">
+                        <option value="viewer">Görüntüleyici</option>
+                        <option value="arsiv">Arşiv Görevlisi</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:18px;">
+                <button type="button" onclick="document.getElementById('ekle_modal').classList.remove('open')"
+                        class="btn btn-ghost" style="flex:1;">İptal</button>
+                <button type="submit" class="btn btn-primary" style="flex:1;">Ekle</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Düzenle Modal -->
+<div id="duzenle_modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-title">✏ Kullanıcı Düzenle</div>
+        <form id="duzenle_form" method="post">
+            <div style="display:flex;flex-direction:column;gap:13px;">
+                <div>
+                    <label class="form-label">Ad Soyad *</label>
+                    <input name="full_name" id="d_fullname" class="input" required>
+                </div>
+                <div>
+                    <label class="form-label">Dahili No</label>
+                    <input name="dahili" id="d_dahili" type="text" class="input" placeholder="örn: 3622">
+                </div>
+                <div>
+                    <label class="form-label">Rol *</label>
+                    <select name="role" id="d_role" class="input">
+                        <option value="viewer">Görüntüleyici</option>
+                        <option value="arsiv">Arşiv Görevlisi</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:18px;">
+                <button type="button" onclick="document.getElementById('duzenle_modal').classList.remove('open')"
+                        class="btn btn-ghost" style="flex:1;">İptal</button>
+                <button type="submit" class="btn btn-primary" style="flex:1;">Kaydet</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Şifre Sıfırla Modal -->
+<div id="sifre_modal" class="modal-overlay">
+    <div class="modal">
+        <div class="modal-title">🔑 Şifre Sıfırla</div>
+        <p id="sifre_isim" style="color:var(--txt4);font-size:13px;margin-bottom:16px;"></p>
+        <form id="sifre_form" method="post">
+            <div>
+                <label class="form-label">Yeni Şifre *</label>
+                <input name="yeni_sifre" type="password" class="input" placeholder="••••••••" required minlength="4">
+            </div>
+            <div style="display:flex;gap:10px;margin-top:18px;">
+                <button type="button" onclick="document.getElementById('sifre_modal').classList.remove('open')"
+                        class="btn btn-ghost" style="flex:1;">İptal</button>
+                <button type="submit" class="btn btn-primary" style="flex:1;">Kaydet</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function duzenleAc(id, fullName, role, dahili, username) {
+    document.getElementById('d_fullname').value = fullName;
+    document.getElementById('d_role').value = role;
+    document.getElementById('d_dahili').value = dahili || '';
+    document.getElementById('d_username').value = username || '';
+    document.getElementById('duzenle_form').action = `/kullanici/${id}/duzenle`;
+    document.getElementById('duzenle_modal').classList.add('open');
+}
+function sifreAc(id, isim) {
+    document.getElementById('sifre_isim').textContent = isim + ' kullanıcısının şifresini sıfırlayın';
+    document.getElementById('sifre_form').action = `/kullanici/${id}/sifre`;
+    document.getElementById('sifre_modal').classList.add('open');
+}
+const p = new URLSearchParams(location.search);
+if(p.get('mesaj') === 'eklendi')    bildirim('✓ Kullanıcı eklendi');
+if(p.get('mesaj') === 'guncellendi') bildirim('✓ Kullanıcı güncellendi');
+if(p.get('mesaj') === 'silindi')     bildirim('✓ Kullanıcı silindi');
+</script>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% set active = "raporlar" %}
+{% block content %}
+<div style="padding:28px 32px;">
+    <div class="page-title" style="display:flex;align-items:center;gap:8px;">📑 Raporlar</div>
+    <div class="page-subtitle" style="margin-bottom:24px;">PDF rapor oluştur ve yazdır</div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px;">
+        <!-- Tarih Aralığı -->
+        <div class="card" style="padding:18px;">
+            <div style="background:var(--blue-bg);border-radius:8px;padding:14px;margin-bottom:16px;">
+                <div style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:4px;">📅 Tarih Aralığı Raporu</div>
+                <div style="font-size:12px;color:var(--txt3);">Seçilen tarih aralığındaki tüm zimmet hareketlerini listeler.</div>
+            </div>
+            <form method="post" action="/rapor/tarih">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+                    <div><label class="form-label">Başlangıç</label><input type="date" name="bas" class="input" value="{{ today }}"></div>
+                    <div><label class="form-label">Bitiş</label><input type="date" name="bit" class="input" value="{{ today }}"></div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">📄 PDF Oluştur</button>
+            </form>
+        </div>
+
+        <!-- Personel -->
+        <div class="card" style="padding:18px;">
+            <div style="background:var(--green-bg);border-radius:8px;padding:14px;margin-bottom:16px;">
+                <div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:4px;">👤 Personel Bazlı Rapor</div>
+                <div style="font-size:12px;color:var(--txt3);">Seçilen personelin tüm zimmet geçmişini listeler.</div>
+            </div>
+            <form method="post" action="/rapor/personel">
+                <div style="margin-bottom:10px;">
+                    <label class="form-label">Personel</label>
+                    <select name="personel" class="input">
+                        <option value="">— Tüm Personel —</option>
+                        {% for u in kullanicilar %}<option value="{{ u.full_name }}">{{ u.full_name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+                    <div><label class="form-label">Başlangıç</label><input type="date" name="bas" class="input" value="{{ today }}"></div>
+                    <div><label class="form-label">Bitiş</label><input type="date" name="bit" class="input" value="{{ today }}"></div>
+                </div>
+                <button type="submit" class="btn btn-success" style="width:100%;">📄 PDF Oluştur</button>
+            </form>
+        </div>
+
+        <!-- Özet -->
+        <div class="card" style="padding:18px;">
+            <div style="background:var(--amber-bg);border-radius:8px;padding:14px;margin-bottom:16px;">
+                <div style="font-size:13px;font-weight:700;color:var(--amber);margin-bottom:4px;">📊 Arşiv Durum Özeti</div>
+                <div style="font-size:12px;color:var(--txt3);">Tüm sistemin anlık durumunu özetleyen kapsamlı rapor.</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px;">
+                {% for m in ['• Toplam dosya sayısı','• Arşivde / Zimmette / Gecikmiş','• İlçe bazlı dağılım','• En yoğun 10 personel','• En çok bekleyen 10 dosya'] %}
+                <div style="font-size:12px;color:var(--txt3);">{{ m }}</div>
+                {% endfor %}
+            </div>
+            <form method="post" action="/rapor/ozet">
+                <button type="submit" class="btn btn-amber" style="width:100%;">📄 PDF Oluştur</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Oluşturulan Raporlar -->
+    <div class="card" style="padding:18px;">
+        <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:12px;display:flex;align-items:center;gap:6px;">📂 Oluşturulan Raporlar</div>
+        <div style="color:var(--txt4);font-size:13px;margin-bottom:12px;">
+            {% if son_rapor %}{{ son_rapor }}{% else %}Henüz rapor oluşturulmadı.{% endif %}
+        </div>
+        <button onclick="bildirim('Rapor klasörü: raporlar/')" class="btn btn-ghost" style="width:100%;">📁 Rapor Klasörünü Aç</button>
+    </div>
+</div>
+{% endblock %}

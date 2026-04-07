@@ -50,7 +50,7 @@ from db import (
     movement_user_id_guncelle,
     arsive_gonder, arsive_gonder_iptal, arsive_gonderilen_dosyalar,
     arsiv_gorevlisini_getir, tum_arsiv_gorevlileri,
-    dosya_iade_et,
+    dosya_iade_et, zimmet_guncelle,
 )
 
 
@@ -911,14 +911,17 @@ class KartMetrik(QFrame):
             QFrame {{
                 background: {P['surface']};
                 border: 1px solid {P['border']};
-                border-radius: 12px;
+                border-radius: 10px;
+            }}
+            QFrame:hover {{
+                border: 1px solid {P['border2']};
             }}
         """)
 
         # Sol renk şeridi
         serit = QFrame(self)
         serit.setGeometry(0, 0, 4, 96)
-        serit.setStyleSheet(f"background:{clr}; border-radius:12px 0 0 12px;")
+        serit.setStyleSheet(f"background:{clr}; border-radius:10px 0 0 10px;")
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(14, 10, 12, 10)
@@ -1098,12 +1101,15 @@ class NavButon(QPushButton):
                 text-align: left;
             }}
             QPushButton:hover {{
-                background: rgba(255,255,255,0.08);
-                border-left: 3px solid rgba(26,111,191,0.5);
+                background: rgba(255,255,255,0.06);
+                border-left: 3px solid rgba(26,111,191,0.4);
             }}
             QPushButton:checked {{
-                background: rgba(26,111,191,0.20);
-                border-left: 3px solid {P['navy_active']};
+                background: rgba(26,111,191,0.18);
+                border-left: 3px solid #1A6FBF;
+            }}
+            QPushButton:pressed {{
+                background: rgba(26,111,191,0.25);
             }}
         """)
 
@@ -1111,19 +1117,19 @@ class NavButon(QPushButton):
         super().setChecked(checked)
         if checked:
             self._metin_lbl.setStyleSheet(
-                f"font-size: 13px; font-weight: 700; "
-                f"background: transparent; color: white;"
+                f"font-size: 13px; font-weight: 700; letter-spacing: 0.1px;"
+                f"background: transparent; color: #EDF2F7;"
             )
             self._ikon_lbl.setStyleSheet(
-                "font-size: 17px; background: transparent;"
+                "font-size: 16px; background: transparent; color: #60A5FA;"
             )
         else:
             self._metin_lbl.setStyleSheet(
-                f"font-size: 13px; font-weight: 500; "
+                f"font-size: 13px; font-weight: 400; "
                 f"background: transparent; color: {P['navy_text']};"
             )
             self._ikon_lbl.setStyleSheet(
-                "font-size: 17px; background: transparent;"
+                "font-size: 16px; background: transparent;"
             )
 
 
@@ -2339,8 +2345,8 @@ def _mesaj_sayfasi_olustur(kullanici: dict, stack_ref,
             konusma_listesini_yukle(); konusmayi_sec(kid,kn,False)
     yeni_btn.clicked.connect(yeni_konusma)
 
-    # Admin duyuru
-    if urole=="admin":
+    # Admin ve Arşiv Görevlisi duyuru yapabilir
+    if urole in ("admin", "arsiv"):
         db2=QPushButton("📢"); db2.setFixedSize(34,34); db2.setToolTip("Duyuru gönder")
         db2.setStyleSheet(f"QPushButton{{background:{P['amber_bg']};color:{P['amber_t']};border:none;border-radius:10px;font-size:14px;}}QPushButton:hover{{background:#FDE68A;}}")
         sh_lay.addWidget(db2)
@@ -2368,22 +2374,41 @@ def _mesaj_sayfasi_olustur(kullanici: dict, stack_ref,
     # ── OTOMATİK YENİLEME ────────────────────────────
     _oids=[set()]
     def otomatik_yenile():
-        try: presence_guncelle(uid)
-        except Exception: pass
+        """Arka planda çalışır — UI'yi bloklamaz."""
+        import threading
+        def _arka_plan():
+            try: presence_guncelle(uid)
+            except Exception: pass
+            try:
+                ids = online_kullanici_bilgileri(dakika=3)
+                id_set = {u["id"] for u in ids}
+                _oids[0] = id_set
+                # UI güncellemelerini ana thread'e gönder
+                from PySide6.QtCore import QMetaObject, Qt
+                QMetaObject.invokeMethod(
+                    sayfa, "_mesaj_timer_guncelle",
+                    Qt.QueuedConnection
+                )
+            except Exception: pass
+
+        threading.Thread(target=_arka_plan, daemon=True).start()
+
+    # Ana thread'de UI güncelleyen slot
+    def _mesaj_timer_guncelle_slot():
         try:
-            ids=online_guncelle(); _oids[0]=ids
+            ids = _oids[0] if _oids[0] else set()
             konusma_listesini_yukle(ids)
-            if state["secili_id"] is not None: mesajlari_yukle()
-        except Exception: pass
-        try:
-            yeni=mesajlari_getir(uid)
-            for m in yeni:
-                if m["id"] not in _oids[0] and m.get("yon")=="gelen" and not m.get("okundu"):
-                    bildirim_goster(f"Yeni mesaj — {m['gonderen']}",m["icerik"])
+            if state["secili_id"] is not None:
+                mesajlari_yukle()
         except Exception: pass
 
-    timer=QTimer(); timer.setInterval(5000); timer.timeout.connect(otomatik_yenile); timer.start()
-    sayfa._mesaj_timer=timer
+    sayfa._mesaj_timer_guncelle = _mesaj_timer_guncelle_slot
+
+    timer = QTimer()
+    timer.setInterval(15000)  # 15 saniye — ağ için daha uygun
+    timer.timeout.connect(otomatik_yenile)
+    timer.start()
+    sayfa._mesaj_timer = timer
 
     try:
         ids0=online_guncelle(); konusma_listesini_yukle(ids0)
@@ -2418,7 +2443,7 @@ def _bolum_baslik(metin: str, alt: str = "") -> QVBoxLayout:
     lay.setSpacing(2)
     lbl = QLabel(metin)
     lbl.setStyleSheet(
-        f"font-size: 22px; font-weight: 800; color: {P['txt']}; letter-spacing: -0.5px;"
+        f"font-size: 20px; font-weight: 800; color: {P['txt']}; letter-spacing: -0.3px;"
     )
     lay.addWidget(lbl)
     if alt:
@@ -3078,6 +3103,111 @@ class YeniDosyaDialog(QDialog):
             QMessageBox.critical(self, "Hata", str(e))
 
 
+class DuzenleZimmetDialog(QDialog):
+    """Mevcut zimmeti düzenle — teslim alan personel ve not."""
+    def __init__(self, dosya: dict, kullanici: dict):
+        super().__init__()
+        self.dosya = dosya
+        self.kullanici = kullanici
+        self._secili_user_id = None
+
+        lay = _dialog_kur(self, 480, "✏️", "Zimmet Düzenle",
+                          f"{dosya.get('orijinal_dosya_no','')}  —  {dosya.get('ilce','')}")
+
+        # Mevcut bilgiler
+        bilgi = QFrame()
+        bilgi.setStyleSheet(f"""
+            QFrame {{ background:{P['surface2']}; border:1px solid {P['border']};
+                border-radius:8px; }}
+        """)
+        bl = QHBoxLayout(bilgi); bl.setContentsMargins(14,10,14,10); bl.setSpacing(20)
+        for etiket, deger in [
+            ("Ada/Parsel", f"{dosya.get('ada','')} / {dosya.get('parsel','')}"),
+            ("İlçe",       dosya.get("ilce","")),
+            ("Müdürlük",   (dosya.get("sefligi") or "")[:25]),
+        ]:
+            ic = QVBoxLayout(); ic.setSpacing(2)
+            ic.addWidget(QLabel(etiket, styleSheet=f"font-size:10px;color:{P['txt4']};font-weight:600;"))
+            ic.addWidget(QLabel(deger,  styleSheet=f"font-size:12px;color:{P['txt2']};font-weight:600;"))
+            bl.addLayout(ic)
+        lay.addWidget(bilgi)
+
+        # Teslim Alan
+        self._teslim_cb = QComboBox()
+        self._teslim_cb.setEditable(True)
+        self._teslim_cb.setInsertPolicy(QComboBox.NoInsert)
+        self._teslim_cb.setFixedHeight(42)
+        self._teslim_cb.setFocusPolicy(Qt.StrongFocus)
+        self._teslim_cb.view().setMinimumWidth(280)
+        le = self._teslim_cb.lineEdit()
+        le.setPlaceholderText("Kullanıcı seç veya isim yaz...")
+        le.mousePressEvent = lambda e: (
+            self._teslim_cb.showPopup(),
+            type(le).mousePressEvent(le, e)
+        )
+        # Mevcut değeri göster
+        mevcut = dosya.get("teslim_alan_personel","")
+        self._teslim_cb.addItem(mevcut or "— Kullanıcı seç —", None)
+        for k in tum_kullanicilari_getir():
+            if k["active"] and k["role"] != "admin":
+                self._teslim_cb.addItem(
+                    f"{k['full_name']}  ({ROL_ETIKET.get(k['role'],k['role'])})",
+                    k["id"]
+                )
+        self._teslim_cb.addItem("── Serbest isim gir ──", -1)
+        self._teslim_cb.currentIndexChanged.connect(
+            lambda i: setattr(self, '_secili_user_id',
+                self._teslim_cb.currentData()
+                if self._teslim_cb.currentData() not in (None, -1) else None)
+        )
+
+        # Not
+        self.notlar = QTextEdit()
+        self.notlar.setFixedHeight(80)
+        self.notlar.setPlaceholderText("Not ekle veya güncelle...")
+        self.notlar.setText(dosya.get("notlar","") or "")
+
+        for etiket, widget in [
+            ("TESLİM ALAN PERSONEL *", self._teslim_cb),
+            ("NOT",                    self.notlar),
+        ]:
+            _form_satir(lay, etiket, widget)
+
+        kaydet = QPushButton("💾  Güncelle")
+        kaydet.setFixedHeight(46)
+        _btn_satir(lay, self.reject, kaydet)
+        kaydet.clicked.connect(self._kaydet)
+
+    def _kaydet(self):
+        t = self._teslim_cb.currentText().split("  (")[0].strip()
+        if t in ("— Kullanıcı seç —", "── Serbest isim gir ──"):
+            t = self._teslim_cb.lineEdit().text().strip()
+        if not t:
+            QMessageBox.warning(self, "Uyarı", "Teslim alan personel boş olamaz.")
+            return
+        try:
+            basari = zimmet_guncelle(
+                file_id=self.dosya["file_id"],
+                teslim_alan=t,
+                teslim_alan_user_id=self._secili_user_id,
+                notlar=self.notlar.toPlainText().strip(),
+            )
+            if not basari:
+                QMessageBox.warning(self, "Uyarı",
+                    "Bu dosyada açık zimmet bulunamadı.\n"
+                    "Arşivdeki dosyalar düzenlenemez.")
+                return
+            action_log_ekle(
+                self.kullanici["id"], self.kullanici["username"],
+                self.kullanici["full_name"], self.kullanici["role"],
+                "DOSYA_DÜZENLE",
+                f"file_id={self.dosya['file_id']} teslim_alan={t}"
+            )
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Hata", str(e))
+
+
 class ZimmetEkleDialog(QDialog):
     def __init__(self, file_id: int, dosya_no: str, kullanici: dict):
         super().__init__()
@@ -3617,6 +3747,10 @@ class MainWindow(QMainWindow):
         self._bekleyen_sayfa = self._sayfa_bekleyenler()
         self._stack.addWidget(self._bekleyen_sayfa)
 
+        # Raporlar sayfası (index 8)
+        self._rapor_sayfa = self._sayfa_raporlar()
+        self._stack.addWidget(self._rapor_sayfa)
+
         # Mesaj sayfası
         self._mesaj_sayfa, self._mesaj_guncelle = _mesaj_sayfasi_olustur(
             self.kullanici, self._stack, self._nav_btns, self._badge_ref
@@ -3655,8 +3789,8 @@ class MainWindow(QMainWindow):
         logo_txt.setSpacing(1)
         app_name = QLabel("Arşiv Takip")
         app_name.setStyleSheet("color: #EDF2F7; font-size: 14px; font-weight: 700; letter-spacing: 0.3px;")
-        ver_lbl = QLabel(f"Sistem  {APP_VERSIYON}")
-        ver_lbl.setStyleSheet(f"color: {P['navy_text']}; font-size: 10px; letter-spacing: 0.5px;")
+        ver_lbl = QLabel(f"v{APP_VERSIYON}  ·  IBB")
+        ver_lbl.setStyleSheet(f"color: {P['navy_text']}; font-size: 10px; letter-spacing: 0.8px;")
         logo_txt.addWidget(app_name)
         logo_txt.addWidget(ver_lbl)
 
@@ -3694,13 +3828,15 @@ class MainWindow(QMainWindow):
             ]
 
         # Stack sırası: 5=Üzerimdekiler, 6=Bekleyenler, 7=Mesajlar
-        self._mesaj_sayfa_idx = 7
+        self._mesaj_sayfa_idx = 8
         self._uzerimdeki_idx  = 5
         self._bekleyen_idx    = 6
+        self._rapor_idx       = 7  # Raporlar
         navlar_final = list(navlar)
         navlar_final.append(("📌", "Üzerimdekiler",   5))
         navlar_final.append(("⚠️", "En Çok Bekleyen", 6))
-        navlar_final.append(("💬", "Mesajlar",         7))
+        navlar_final.append(("📑", "Raporlar",         7))
+        navlar_final.append(("💬", "Mesajlar",         8))
 
         for ikon, metin, stack_idx in navlar_final:
             btn = NavButon(ikon, metin)
@@ -3837,6 +3973,7 @@ class MainWindow(QMainWindow):
         else:          self._sidebar.setMaximumWidth(240)
 
     def veriyi_yukle(self):
+        """Veriyi yükle ve UI'yi güncelle."""
         try:
             tablo_olustur()
             self._data = tum_files_ozet()
@@ -3854,6 +3991,27 @@ class MainWindow(QMainWindow):
                 self._mesaj_loglarini_yukle()
         except Exception as e:
             QMessageBox.critical(self, "Hata", f"Veri yüklenemedi:\n{e}")
+
+    def _veri_yukle_tamamlandi(self):
+        """Thread'den gelen veri tamamlandığında çağrılır."""
+        try:
+            if hasattr(self, '_yuklenen_data') and self._yuklenen_data is not None:
+                self._data = self._yuklenen_data
+                self._ilce_listesi_yukle()
+                self._ozetleri_guncelle()
+                self._istatistikleri_guncelle()
+                self._dashboard_guncelle()
+                self._tablo_goster(self._data)
+                self._uzerimdeki_guncelle()
+                try: self._bekleyen_guncelle()
+                except Exception: pass
+                if hasattr(self, '_hos_lbl'):
+                    self._selamlama_guncelle()
+        except Exception: pass
+
+    def _veri_yukle_hata(self):
+        QMessageBox.critical(self, "Hata",
+            f"Veri yüklenemedi:\n{getattr(self, '_yukle_hata', 'Bilinmeyen hata')}")
 
     # ── ANA PANEL (Dashboard) ─────────────────────────────────
 
@@ -4916,6 +5074,562 @@ class MainWindow(QMainWindow):
         ana.addWidget(tabs)
         return sayfa
 
+    def _sayfa_raporlar(self) -> QWidget:
+        """Rapor üreticisi sayfası."""
+        sayfa = QWidget()
+        sayfa.setStyleSheet(f"background:{P['bg']};")
+        ana = QVBoxLayout(sayfa)
+        ana.setContentsMargins(32, 28, 32, 20)
+        ana.setSpacing(20)
+
+        # Başlık
+        ust = QHBoxLayout()
+        ust.addLayout(_bolum_baslik("📑  Raporlar", "PDF rapor oluştur ve yazdır"))
+        ust.addStretch()
+        ana.addLayout(ust)
+
+        # 3 rapor kartı yan yana
+        kartlar = QHBoxLayout(); kartlar.setSpacing(16)
+
+        # ── KART 1: Tarih Aralığı Raporu ──
+        k1 = self._rapor_karti(
+            "📅  Tarih Aralığı Raporu",
+            "Seçilen tarih aralığındaki tüm zimmet hareketlerini listeler.",
+            "#1A6FBF", "#E8F1FA"
+        )
+        k1_ic = k1.findChild(QVBoxLayout)
+
+        self._r_bas_tarih = QDateEdit(QDate.currentDate().addDays(-30))
+        self._r_bas_tarih.setCalendarPopup(True)
+        self._r_bas_tarih.setDisplayFormat("dd.MM.yyyy")
+        self._r_bas_tarih.setFixedHeight(38)
+
+        self._r_bit_tarih = QDateEdit(QDate.currentDate())
+        self._r_bit_tarih.setCalendarPopup(True)
+        self._r_bit_tarih.setDisplayFormat("dd.MM.yyyy")
+        self._r_bit_tarih.setFixedHeight(38)
+
+        tarih_lay = QHBoxLayout(); tarih_lay.setSpacing(8)
+        bas_ic = QVBoxLayout(); bas_ic.setSpacing(3)
+        bas_ic.addWidget(QLabel("Başlangıç", styleSheet=f"font-size:11px;color:{P['txt4']};font-weight:600;"))
+        bas_ic.addWidget(self._r_bas_tarih)
+        bit_ic = QVBoxLayout(); bit_ic.setSpacing(3)
+        bit_ic.addWidget(QLabel("Bitiş", styleSheet=f"font-size:11px;color:{P['txt4']};font-weight:600;"))
+        bit_ic.addWidget(self._r_bit_tarih)
+        tarih_lay.addLayout(bas_ic); tarih_lay.addLayout(bit_ic)
+
+        btn1 = QPushButton("📄  PDF Oluştur")
+        btn1.setFixedHeight(42)
+        btn1.setStyleSheet(f"""
+            QPushButton {{ background:{P['blue']}; color:white;
+                border:none; border-radius:8px; font-size:13px; font-weight:700; }}
+            QPushButton:hover {{ background:{P['blue2']}; }}
+        """)
+        btn1.clicked.connect(self._rapor_tarih_aralik)
+
+        ic1 = QVBoxLayout(); ic1.setSpacing(10)
+        ic1.addLayout(tarih_lay)
+        ic1.addWidget(btn1)
+        ic1.addStretch()
+
+        w1 = QWidget(); w1.setStyleSheet("background:transparent;")
+        w1.setLayout(ic1)
+        k1.layout().addWidget(w1)
+        kartlar.addWidget(k1)
+
+        # ── KART 2: Personel Raporu ──
+        k2 = self._rapor_karti(
+            "👤  Personel Bazlı Raporu",
+            "Seçilen personelin tüm zimmet geçmişini listeler.",
+            "#0A7C4E", "#E6F4EE"
+        )
+
+        self._r_personel_cb = QComboBox()
+        self._r_personel_cb.setFixedHeight(38)
+        self._r_personel_cb.setFocusPolicy(Qt.StrongFocus)
+        self._r_personel_cb.addItem("— Tüm Personel —", "")
+        for k in tum_kullanicilari_getir():
+            if k["active"] and k["role"] != "admin":
+                self._r_personel_cb.addItem(k["full_name"], k["full_name"])
+
+        self._r_per_bas = QDateEdit(QDate.currentDate().addDays(-30))
+        self._r_per_bas.setCalendarPopup(True)
+        self._r_per_bas.setDisplayFormat("dd.MM.yyyy")
+        self._r_per_bas.setFixedHeight(38)
+
+        self._r_per_bit = QDateEdit(QDate.currentDate())
+        self._r_per_bit.setCalendarPopup(True)
+        self._r_per_bit.setDisplayFormat("dd.MM.yyyy")
+        self._r_per_bit.setFixedHeight(38)
+
+        per_tarih = QHBoxLayout(); per_tarih.setSpacing(8)
+        pb_ic = QVBoxLayout(); pb_ic.setSpacing(3)
+        pb_ic.addWidget(QLabel("Başlangıç", styleSheet=f"font-size:11px;color:{P['txt4']};font-weight:600;"))
+        pb_ic.addWidget(self._r_per_bas)
+        pbt_ic = QVBoxLayout(); pbt_ic.setSpacing(3)
+        pbt_ic.addWidget(QLabel("Bitiş", styleSheet=f"font-size:11px;color:{P['txt4']};font-weight:600;"))
+        pbt_ic.addWidget(self._r_per_bit)
+        per_tarih.addLayout(pb_ic); per_tarih.addLayout(pbt_ic)
+
+        btn2 = QPushButton("📄  PDF Oluştur")
+        btn2.setFixedHeight(42)
+        btn2.setStyleSheet(f"""
+            QPushButton {{ background:{P['green']}; color:white;
+                border:none; border-radius:8px; font-size:13px; font-weight:700; }}
+            QPushButton:hover {{ background:#086640; }}
+        """)
+        btn2.clicked.connect(self._rapor_personel)
+
+        ic2 = QVBoxLayout(); ic2.setSpacing(10)
+        per_lbl_ic = QVBoxLayout(); per_lbl_ic.setSpacing(3)
+        per_lbl_ic.addWidget(QLabel("Personel", styleSheet=f"font-size:11px;color:{P['txt4']};font-weight:600;"))
+        per_lbl_ic.addWidget(self._r_personel_cb)
+        ic2.addLayout(per_lbl_ic)
+        ic2.addLayout(per_tarih)
+        ic2.addWidget(btn2)
+        ic2.addStretch()
+
+        w2 = QWidget(); w2.setStyleSheet("background:transparent;")
+        w2.setLayout(ic2)
+        k2.layout().addWidget(w2)
+        kartlar.addWidget(k2)
+
+        # ── KART 3: Özet Raporu ──
+        k3 = self._rapor_karti(
+            "📊  Arşiv Durum Özeti",
+            "Tüm sistemin anlık durumunu özetleyen kapsamlı rapor.",
+            "#B86A00", "#FEF3E2"
+        )
+
+        btn3 = QPushButton("📄  PDF Oluştur")
+        btn3.setFixedHeight(42)
+        btn3.setStyleSheet(f"""
+            QPushButton {{ background:{P['amber']}; color:white;
+                border:none; border-radius:8px; font-size:13px; font-weight:700; }}
+            QPushButton:hover {{ background:#995800; }}
+        """)
+        btn3.clicked.connect(self._rapor_ozet)
+
+        ic3 = QVBoxLayout(); ic3.setSpacing(10)
+        bilgi = QLabel(
+            "• Toplam dosya sayısı\n"
+            "• Arşivde / Zimmette / Gecikmiş\n"
+            "• İlçe bazlı dağılım\n"
+            "• En yoğun 10 personel\n"
+            "• En çok bekleyen 10 dosya"
+        )
+        bilgi.setStyleSheet(f"font-size:12px; color:{P['txt3']}; line-height:1.6;")
+        ic3.addWidget(bilgi)
+        ic3.addStretch()
+        ic3.addWidget(btn3)
+
+        w3 = QWidget(); w3.setStyleSheet("background:transparent;")
+        w3.setLayout(ic3)
+        k3.layout().addWidget(w3)
+        kartlar.addWidget(k3)
+
+        ana.addLayout(kartlar)
+
+        # Son raporlar listesi
+        son_kart = QFrame()
+        son_kart.setStyleSheet(f"""
+            QFrame {{ background:{P['surface']}; border:1px solid {P['border']};
+                border-radius:8px; }}
+        """)
+        son_lay = QVBoxLayout(son_kart)
+        son_lay.setContentsMargins(20,16,20,16); son_lay.setSpacing(8)
+        son_baslik = QLabel("📂  Oluşturulan Raporlar")
+        son_baslik.setStyleSheet(f"font-size:13px; font-weight:700; color:{P['txt']};")
+        son_lay.addWidget(son_baslik)
+        self._rapor_listesi = QLabel("Henüz rapor oluşturulmadı.")
+        self._rapor_listesi.setStyleSheet(f"font-size:12px; color:{P['txt4']};")
+        son_lay.addWidget(self._rapor_listesi)
+        acik_btn = QPushButton("📁  Rapor Klasörünü Aç")
+        acik_btn.setObjectName("ghost"); acik_btn.setFixedHeight(36)
+        acik_btn.clicked.connect(self._rapor_klasoru_ac)
+        son_lay.addWidget(acik_btn)
+        ana.addWidget(son_kart)
+        ana.addStretch()
+        return sayfa
+
+    def _rapor_karti(self, baslik, aciklama, renk, bg):
+        kart = QFrame()
+        kart.setStyleSheet(f"""
+            QFrame {{ background:{P['surface']}; border:1px solid {P['border']};
+                border-radius:8px; }}
+        """)
+        lay = QVBoxLayout(kart)
+        lay.setContentsMargins(20,18,20,18); lay.setSpacing(10)
+
+        ust = QFrame()
+        ust.setStyleSheet(f"background:{bg}; border-radius:6px; border:none;")
+        ust_lay = QVBoxLayout(ust)
+        ust_lay.setContentsMargins(14,12,14,12); ust_lay.setSpacing(4)
+        b = QLabel(baslik)
+        b.setStyleSheet(f"font-size:13px; font-weight:700; color:{renk}; background:transparent;")
+        a = QLabel(aciklama)
+        a.setStyleSheet(f"font-size:11px; color:{P['txt3']}; background:transparent;")
+        a.setWordWrap(True)
+        ust_lay.addWidget(b); ust_lay.addWidget(a)
+        lay.addWidget(ust)
+        return kart
+
+    def _rapor_pdf_kaydet(self, icerik_fn, dosya_adi_prefix):
+        """PDF oluştur, kaydet ve aç."""
+        try:
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import cm
+            from reportlab.lib import colors
+            from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                            Table, TableStyle, HRFlowable)
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            import datetime as _dt, os
+
+            simdi = _dt.datetime.now()
+            klasor = Path("raporlar")
+            klasor.mkdir(exist_ok=True)
+            dosya = klasor / f"{dosya_adi_prefix}_{simdi.strftime('%Y%m%d_%H%M%S')}.pdf"
+
+            doc = SimpleDocTemplate(
+                str(dosya), pagesize=A4,
+                rightMargin=1.5*cm, leftMargin=1.5*cm,
+                topMargin=2*cm, bottomMargin=1.5*cm
+            )
+
+            stiller = getSampleStyleSheet()
+            stil_baslik = ParagraphStyle(
+                "Baslik", parent=stiller["Heading1"],
+                fontSize=16, textColor=colors.HexColor("#1C2434"),
+                spaceAfter=4, fontName="Helvetica-Bold"
+            )
+            stil_alt = ParagraphStyle(
+                "Alt", parent=stiller["Normal"],
+                fontSize=9, textColor=colors.HexColor("#536478"),
+                spaceAfter=12
+            )
+            stil_bolum = ParagraphStyle(
+                "Bolum", parent=stiller["Heading2"],
+                fontSize=12, textColor=colors.HexColor("#1A6FBF"),
+                spaceBefore=12, spaceAfter=6, fontName="Helvetica-Bold"
+            )
+            stil_normal = ParagraphStyle(
+                "Normal2", parent=stiller["Normal"],
+                fontSize=9, textColor=colors.HexColor("#1A2332"),
+                spaceAfter=4
+            )
+
+            # Başlık
+            elemanlar = []
+            elemanlar.append(Paragraph("İzmir Büyükşehir Belediyesi", stil_alt))
+            elemanlar.append(Paragraph("Gayrimenkul Geliştirme ve Yönetim Dairesi", stil_alt))
+            elemanlar.append(HRFlowable(width="100%", thickness=2,
+                                         color=colors.HexColor("#1A6FBF")))
+            elemanlar.append(Spacer(1, 0.3*cm))
+
+            # İçerik üret
+            icerik_fn(elemanlar, stil_baslik, stil_alt, stil_bolum, stil_normal)
+
+            # Alt bilgi
+            elemanlar.append(Spacer(1, 0.5*cm))
+            elemanlar.append(HRFlowable(width="100%", thickness=1,
+                                         color=colors.HexColor("#DDE1E7")))
+            elemanlar.append(Paragraph(
+                f"Rapor Tarihi: {simdi.strftime('%d.%m.%Y %H:%M')}  ·  "
+                f"Hazırlayan: {self.kullanici['full_name']}  ·  "
+                f"Arşiv Takip Sistemi v3.0",
+                ParagraphStyle("Footer", parent=stiller["Normal"],
+                                fontSize=8, textColor=colors.HexColor("#8FA3BE"),
+                                alignment=1)
+            ))
+
+            doc.build(elemanlar)
+
+            # Listeyi güncelle
+            self._rapor_listesi.setText(f"✓  {dosya.name}  ({simdi.strftime('%d.%m.%Y %H:%M')})")
+
+            # Aç
+            import subprocess, sys
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(dosya)])
+            elif sys.platform == "win32":
+                os.startfile(str(dosya))
+
+            QMessageBox.information(self, "Rapor Oluşturuldu ✓",
+                f"Rapor kaydedildi:\n{dosya}\n\nOtomatik açılıyor...")
+
+        except ImportError:
+            QMessageBox.critical(self, "Hata",
+                "reportlab kütüphanesi eksik.\n\nTerminalde şunu çalıştırın:\n"
+                "pip install reportlab")
+        except Exception as e:
+            QMessageBox.critical(self, "Hata", f"PDF oluşturulamadı:\n{e}")
+
+    def _rapor_tarih_aralik(self):
+        bas = self._r_bas_tarih.date().toString("yyyy-MM-dd")
+        bit = self._r_bit_tarih.date().toString("yyyy-MM-dd")
+        bas_g = self._r_bas_tarih.date().toString("dd.MM.yyyy")
+        bit_g = self._r_bit_tarih.date().toString("dd.MM.yyyy")
+
+        # Veriyi filtrele
+        veriler = [
+            r for r in self._data
+            if bas <= (r.get("teslim_tarihi") or "") <= bit
+        ]
+
+        def icerik(els, s_bas, s_alt, s_bol, s_nor):
+            from reportlab.platypus import Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib import colors
+
+            els.append(Paragraph(f"Tarih Aralığı Zimmet Raporu", s_bas))
+            els.append(Paragraph(f"{bas_g} — {bit_g}  ·  Toplam {len(veriler)} kayıt", s_alt))
+            els.append(Spacer(1, 0.3*__import__('reportlab').lib.units.cm))
+
+            if not veriler:
+                els.append(Paragraph("Bu tarih aralığında kayıt bulunamadı.", s_nor))
+                return
+
+            # Tablo
+            basliklar = ["Dosya No", "İlçe", "Müdürlük", "Ada/Parsel",
+                         "Teslim Alan", "Arşiv Gör.", "Tarih", "Durum"]
+            tablo_verisi = [basliklar]
+            for r in veriler:
+                ada_pars = f"{r.get('ada','')}/{r.get('parsel','')}"
+                tablo_verisi.append([
+                    r.get("orijinal_dosya_no",""),
+                    r.get("ilce",""),
+                    (r.get("sefligi") or "")[:20],
+                    ada_pars,
+                    (r.get("teslim_alan_personel") or "")[:14],
+                    (r.get("veren_arsiv_gorevlisi") or "")[:12],
+                    (r.get("teslim_tarihi") or "")[-5:],
+                    r.get("durum",""),
+                ])
+
+            col_widths = [55,55,80,55,75,65,40,65]
+            t = Table(tablo_verisi, colWidths=col_widths, repeatRows=1)
+            t.setStyle(TableStyle([
+                ("BACKGROUND",   (0,0), (-1,0), colors.HexColor("#1C2434")),
+                ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+                ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE",     (0,0), (-1,-1), 8),
+                ("ALIGN",        (0,0), (-1,-1), "CENTER"),
+                ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1),
+                 [colors.HexColor("#F7F8FA"), colors.white]),
+                ("GRID",         (0,0), (-1,-1), 0.3, colors.HexColor("#DDE1E7")),
+                ("ROWHEIGHT",    (0,0), (-1,-1), 18),
+            ]))
+            els.append(t)
+
+        self._rapor_pdf_kaydet(icerik, "tarih_raporu")
+
+    def _rapor_personel(self):
+        personel = self._r_personel_cb.currentData() or ""
+        bas = self._r_per_bas.date().toString("yyyy-MM-dd")
+        bit = self._r_per_bit.date().toString("yyyy-MM-dd")
+        bas_g = self._r_per_bas.date().toString("dd.MM.yyyy")
+        bit_g = self._r_per_bit.date().toString("dd.MM.yyyy")
+
+        veriler = [
+            r for r in self._data
+            if (not personel or r.get("teslim_alan_personel","") == personel)
+            and bas <= (r.get("teslim_tarihi") or "") <= bit
+        ]
+
+        per_baslik = personel if personel else "Tüm Personel"
+
+        def icerik(els, s_bas, s_alt, s_bol, s_nor):
+            from reportlab.platypus import Table, TableStyle, Spacer
+            from reportlab.lib import colors
+
+            els.append(Paragraph(f"Personel Zimmet Raporu", s_bas))
+            els.append(Paragraph(
+                f"Personel: {per_baslik}  ·  {bas_g} — {bit_g}  ·  "
+                f"Toplam {len(veriler)} kayıt", s_alt))
+            els.append(Spacer(1, 0.3*__import__('reportlab').lib.units.cm))
+
+            if not veriler:
+                els.append(Paragraph("Bu kriterlere uygun kayıt bulunamadı.", s_nor))
+                return
+
+            # Özet satırı
+            zimmette = sum(1 for r in veriler if "ZİMMETTE" in (r.get("durum","")).upper()
+                          or "GECİKMİŞ" in (r.get("durum","")).upper())
+            arsivde  = sum(1 for r in veriler if "ARŞİVDE" in (r.get("durum","")).upper())
+            els.append(Paragraph(
+                f"Zimmette: <b>{zimmette}</b>  |  Arşivde: <b>{arsivde}</b>",
+                s_nor
+            ))
+            els.append(Spacer(1, 0.2*__import__('reportlab').lib.units.cm))
+
+            basliklar = ["Dosya No", "İlçe", "Müdürlük", "Ada", "Parsel",
+                         "Teslim Alan", "Teslim Tarihi", "Durum"]
+            tablo_verisi = [basliklar]
+            for r in veriler:
+                tablo_verisi.append([
+                    r.get("orijinal_dosya_no",""),
+                    r.get("ilce",""),
+                    (r.get("sefligi") or "")[:18],
+                    r.get("ada",""),
+                    r.get("parsel",""),
+                    (r.get("teslim_alan_personel") or "")[:14],
+                    r.get("teslim_tarihi",""),
+                    r.get("durum",""),
+                ])
+
+            col_widths = [55,55,75,40,40,75,60,60]
+            t = Table(tablo_verisi, colWidths=col_widths, repeatRows=1)
+            t.setStyle(TableStyle([
+                ("BACKGROUND",   (0,0), (-1,0), colors.HexColor("#0A7C4E")),
+                ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+                ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE",     (0,0), (-1,-1), 8),
+                ("ALIGN",        (0,0), (-1,-1), "CENTER"),
+                ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1),
+                 [colors.HexColor("#F7F8FA"), colors.white]),
+                ("GRID",         (0,0), (-1,-1), 0.3, colors.HexColor("#DDE1E7")),
+                ("ROWHEIGHT",    (0,0), (-1,-1), 18),
+            ]))
+            els.append(t)
+
+        self._rapor_pdf_kaydet(icerik, "personel_raporu")
+
+    def _rapor_ozet(self):
+        from db import istatistik_ozet, ilce_bazli_istatistik, personel_bazli_istatistik
+
+        oz   = istatistik_ozet()
+        ilce = ilce_bazli_istatistik()[:10]
+        per  = personel_bazli_istatistik()[:10]
+        gec  = sorted(
+            [r for r in self._data if "GEC" in (r.get("durum","")).upper()],
+            key=lambda x: x.get("bekleme_gun",0), reverse=True
+        )[:10]
+
+        def icerik(els, s_bas, s_alt, s_bol, s_nor):
+            from reportlab.platypus import Table, TableStyle, Spacer
+            from reportlab.lib import colors
+            import datetime as _dt
+            cm = __import__('reportlab').lib.units.cm
+
+            els.append(Paragraph("Arşiv Durum Özet Raporu", s_bas))
+            els.append(Paragraph(
+                f"Rapor Tarihi: {_dt.date.today().strftime('%d.%m.%Y')}  ·  "
+                f"Toplam {oz['toplam']} Dosya", s_alt))
+            els.append(Spacer(1, 0.3*cm))
+
+            # Genel özet tablosu
+            els.append(Paragraph("Genel Durum", s_bol))
+            ozet_data = [
+                ["Durum", "Sayı", "Oran"],
+                ["Arşivde",          str(oz["arsivde"]),
+                 f"%{round(oz['arsivde']*100/max(oz['toplam'],1))}"],
+                ["Zimmette",         str(oz["zimmette"]),
+                 f"%{round(oz['zimmette']*100/max(oz['toplam'],1))}"],
+                ["10+ Gün Gecikmiş", str(oz["gecikmis"]),
+                 f"%{round(oz['gecikmis']*100/max(oz['toplam'],1))}"],
+                ["TOPLAM",           str(oz["toplam"]), "%100"],
+            ]
+            t1 = Table(ozet_data, colWidths=[150,80,80])
+            t1.setStyle(TableStyle([
+                ("BACKGROUND",  (0,0), (-1,0), colors.HexColor("#1C2434")),
+                ("TEXTCOLOR",   (0,0), (-1,0), colors.white),
+                ("FONTNAME",    (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTNAME",    (0,-1),(-1,-1),"Helvetica-Bold"),
+                ("BACKGROUND",  (0,-1),(-1,-1), colors.HexColor("#E8F1FA")),
+                ("FONTSIZE",    (0,0), (-1,-1), 9),
+                ("ALIGN",       (0,0), (-1,-1), "CENTER"),
+                ("GRID",        (0,0), (-1,-1), 0.3, colors.HexColor("#DDE1E7")),
+                ("ROWHEIGHT",   (0,0), (-1,-1), 20),
+            ]))
+            els.append(t1)
+            els.append(Spacer(1, 0.4*cm))
+
+            # İlçe bazlı top 10
+            els.append(Paragraph("İlçe Bazlı Dağılım (İlk 10)", s_bol))
+            ilce_data = [["İlçe", "Toplam", "Gecikmiş"]]
+            for i in ilce:
+                ilce_data.append([
+                    i.get("ilce",""),
+                    str(i.get("toplam",0)),
+                    str(i.get("gecikmis",0)),
+                ])
+            t2 = Table(ilce_data, colWidths=[200,80,80])
+            t2.setStyle(TableStyle([
+                ("BACKGROUND",    (0,0), (-1,0), colors.HexColor("#1A6FBF")),
+                ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+                ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE",      (0,0), (-1,-1), 9),
+                ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1),
+                 [colors.HexColor("#F7F8FA"), colors.white]),
+                ("GRID",          (0,0), (-1,-1), 0.3, colors.HexColor("#DDE1E7")),
+                ("ROWHEIGHT",     (0,0), (-1,-1), 18),
+            ]))
+            els.append(t2)
+            els.append(Spacer(1, 0.4*cm))
+
+            # En yoğun personel
+            els.append(Paragraph("En Yoğun 10 Personel", s_bol))
+            per_data = [["Personel", "Zimmette", "Gecikmiş"]]
+            for p in per:
+                per_data.append([
+                    p.get("personel",""),
+                    str(p.get("zimmette",0)),
+                    str(p.get("gecikmis",0)),
+                ])
+            t3 = Table(per_data, colWidths=[200,80,80])
+            t3.setStyle(TableStyle([
+                ("BACKGROUND",    (0,0), (-1,0), colors.HexColor("#0A7C4E")),
+                ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+                ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE",      (0,0), (-1,-1), 9),
+                ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1),
+                 [colors.HexColor("#F7F8FA"), colors.white]),
+                ("GRID",          (0,0), (-1,-1), 0.3, colors.HexColor("#DDE1E7")),
+                ("ROWHEIGHT",     (0,0), (-1,-1), 18),
+            ]))
+            els.append(t3)
+            els.append(Spacer(1, 0.4*cm))
+
+            # En çok bekleyen 10 dosya
+            els.append(Paragraph("En Çok Bekleyen 10 Dosya", s_bol))
+            gec_data = [["Dosya No", "İlçe", "Teslim Alan", "Bekleme (gün)"]]
+            for g in gec:
+                gec_data.append([
+                    g.get("orijinal_dosya_no",""),
+                    g.get("ilce",""),
+                    (g.get("teslim_alan_personel") or "")[:20],
+                    str(g.get("bekleme_gun",0)),
+                ])
+            t4 = Table(gec_data, colWidths=[80,80,160,60])
+            t4.setStyle(TableStyle([
+                ("BACKGROUND",    (0,0), (-1,0), colors.HexColor("#C0392B")),
+                ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+                ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+                ("FONTSIZE",      (0,0), (-1,-1), 9),
+                ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                ("ROWBACKGROUNDS",(0,1),(-1,-1),
+                 [colors.HexColor("#FDF0EF"), colors.white]),
+                ("GRID",          (0,0), (-1,-1), 0.3, colors.HexColor("#DDE1E7")),
+                ("ROWHEIGHT",     (0,0), (-1,-1), 18),
+            ]))
+            els.append(t4)
+
+        self._rapor_pdf_kaydet(icerik, "ozet_raporu")
+
+    def _rapor_klasoru_ac(self):
+        import subprocess, sys
+        klasor = Path("raporlar")
+        klasor.mkdir(exist_ok=True)
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(klasor)])
+        elif sys.platform == "win32":
+            import os; os.startfile(str(klasor))
+
     def _sayfa_bekleyenler(self) -> QWidget:
         """En çok bekleyen dosyalar tam sayfa."""
         sayfa = QWidget()
@@ -5419,37 +6133,40 @@ class MainWindow(QMainWindow):
         gec = oz["gecikmis"]
 
         # Arşive gönderilmiş bekleyenler (arşiv/admin için)
+        bekleyenler = []
         if self.kullanici["role"] in ["arsiv", "admin"]:
             try:
                 bekleyenler = arsive_gonderilen_dosyalar()
             except Exception:
                 bekleyenler = []
-            if bekleyenler:
-                self._banner.setText(
-                    f"📤  {len(bekleyenler)} dosya arşive gönderildi — onay bekliyor!  "
-                    f"{'  |  ⚠️  ' + str(gec) + ' gecikmiş' if gec >= 10 else ''}"
-                )
-                self._banner.setStyleSheet(f"""
-                    background:{P['amber_bg']}; color:{P['amber_t']};
-                    border:1.5px solid #FCD34D; border-radius:10px;
-                    padding:12px 20px; font-size:13px; font-weight:600;
-                """)
-                self._banner.setVisible(True)
-                if hasattr(self, '_banner2'): self._banner2.setVisible(False)
-                return
 
-        if gec >= 10:
-            self._banner.setStyleSheet(f"""
-                background:{P['red_bg']}; color:{P['red_t']};
-                border:1.5px solid #FECACA; border-radius:10px;
-                padding:12px 20px; font-size:13px; font-weight:600;
-            """)
-            self._banner.setText(f"⚠️  {gec} dosya 10 günden fazladır teslim edilmedi!")
+        # Banner metni ve stili belirle
+        if bekleyenler and gec >= 10:
+            # Her ikisi de var
+            metin = (f"📤  {len(bekleyenler)} dosya arşive gönderildi, onay bekliyor  "
+                     f"  |  ⚠️  {gec} dosya 10 günden fazladır teslim edilmedi!")
+            stil_bg = P["amber_bg"]; stil_renk = P["amber_t"]; stil_kenar = "#FCD34D"
+            self._banner.setVisible(True)
+        elif bekleyenler:
+            metin = f"📤  {len(bekleyenler)} dosya arşive gönderildi — onay bekliyor!"
+            stil_bg = P["amber_bg"]; stil_renk = P["amber_t"]; stil_kenar = "#FCD34D"
+            self._banner.setVisible(True)
+        elif gec >= 10:
+            metin = f"⚠️  {gec} dosya 10 günden fazladır teslim edilmedi!"
+            stil_bg = P["red_bg"]; stil_renk = P["red_t"]; stil_kenar = "#FECACA"
             self._banner.setVisible(True)
         else:
             self._banner.setVisible(False)
-        if hasattr(self, '_banner2'):
-            self._banner2.setVisible(False)
+            if hasattr(self, '_banner2'): self._banner2.setVisible(False)
+            return
+
+        self._banner.setText(metin)
+        self._banner.setStyleSheet(f"""
+            background:{stil_bg}; color:{stil_renk};
+            border:1px solid {stil_kenar}; border-radius:8px;
+            padding:10px 20px; font-size:13px; font-weight:600;
+        """)
+        if hasattr(self, '_banner2'): self._banner2.setVisible(False)
 
     def _secili_satir(self) -> dict | None:
         row = self._table.currentRow()
@@ -5511,20 +6228,21 @@ class MainWindow(QMainWindow):
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def _dosya_duzenle(self):
-        if self.kullanici["role"] not in ["arsiv","admin"]:
-            QMessageBox.warning(self,"Yetki","Bu işlem için yetkiniz yok."); return
+        if self.kullanici["role"] not in ["arsiv", "admin"]:
+            QMessageBox.warning(self, "Yetki", "Bu işlem için yetkiniz yok."); return
         s = self._secili_satir()
-        if not s: QMessageBox.warning(self,"Uyarı","Önce bir dosya seçin."); return
-        d = DosyaDuzenleDialog(
-                s["file_id"],
-                s.get("orijinal_dosya_no",""),
-                s.get("sefligi",""),
-                s.get("ada",""),
-                s.get("parsel",""),
-            )
-        if d.exec():
-            action_log_ekle(self.kullanici["id"],self.kullanici["username"],self.kullanici["full_name"],self.kullanici["role"],"DOSYA_DUZENLE",f"file_id={s['file_id']}")
+        if not s:
+            QMessageBox.warning(self, "Uyarı", "Önce bir dosya seçin."); return
+        durum = s.get("durum","")
+        if durum == "ARŞİVDE":
+            QMessageBox.information(self, "Bilgi",
+                "Arşivdeki dosyaların zimmeti düzenlenemez.\n"
+                "Dosyayı önce zimmete alın."); return
+        d = DuzenleZimmetDialog(s, self.kullanici)
+        if d.exec() == QDialog.Accepted:
             self.veriyi_yukle()
+            QMessageBox.information(self, "Güncellendi ✓",
+                f"{s['orijinal_dosya_no']} dosyası güncellendi.")
 
     def _kullanici_ekle_dialog(self):
         d = KullaniciEkleDialog()

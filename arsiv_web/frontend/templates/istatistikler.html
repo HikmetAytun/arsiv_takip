@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% set active = "istatistik" %}
+{% block extra_css %}
+.chart-bar { transition: height 0.4s ease; }
+{% endblock %}
+{% block content %}
+<div style="padding:24px 32px;">
+    <div class="page-title">İstatistikler</div>
+    <div class="page-subtitle" style="margin-bottom:20px;">İlçe ve personel bazlı zimmet dağılımı</div>
+
+    <!-- Üst 3 kart -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 280px;gap:16px;margin-bottom:20px;">
+
+        <!-- Durum Dağılımı -->
+        <div class="card" style="padding:18px;">
+            <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px;">📊 Durum Dağılımı</div>
+            {% set top = [ozet.toplam|default(0),1]|max %}
+            <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;">
+                {% for lbl,val,clr,bg in [
+                    ('Arşivde',ozet.arsivde|default(0),'#0A7C4E','#E6F4EE'),
+                    ('Zimmette',ozet.zimmette|default(0),'#1A6FBF','#E8F1FA'),
+                    ('Gecikmiş',ozet.gecikmis|default(0),'#C0392B','#FDECEA'),
+                ] %}
+                <div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                        <span style="font-size:13px;color:var(--txt2);display:flex;align-items:center;gap:6px;">
+                            <span style="width:10px;height:10px;border-radius:50%;background:{{clr}};display:inline-block;"></span>{{ lbl }}
+                        </span>
+                        <span style="font-size:13px;font-weight:700;color:{{clr}};">{{ val }} <span style="font-size:11px;color:var(--txt4);">({{ (val*100//top) }}%)</span></span>
+                    </div>
+                    <div style="height:8px;background:{{bg}};border-radius:99px;overflow:hidden;">
+                        <div style="height:100%;background:{{clr}};border-radius:99px;width:{{ (val*100//top) }}%;transition:width 0.5s;"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <div style="text-align:center;font-size:38px;font-weight:800;color:var(--txt3);">{{ ozet.toplam|default(0) }}</div>
+            <div style="text-align:center;font-size:11px;color:var(--txt4);text-transform:uppercase;letter-spacing:0.05em;">Toplam Dosya</div>
+        </div>
+
+        <!-- İlçe Top 5 -->
+        <div class="card" style="padding:18px;">
+            <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px;">📍 İlçe Dağılımı (Top 5)</div>
+            {% if ilce %}
+            {% set maks_i = [ilce[0].toplam|default(0),1]|max %}
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                {% for i in ilce[:5] %}
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:12px;color:var(--txt2);width:80px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ i.ilce }}</span>
+                    <div style="flex:1;height:22px;background:var(--surface2);border-radius:6px;overflow:hidden;position:relative;">
+                        <div style="position:absolute;left:0;top:0;bottom:0;background:var(--brand);border-radius:6px;width:{{ (i.toplam*100//maks_i) }}%;transition:width 0.5s;"></div>
+                        <span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;color:var(--txt3);">{{ i.toplam }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <div style="text-align:center;font-size:24px;font-weight:800;color:var(--txt3);margin-top:14px;">{{ ilce|length }} ilçe</div>
+            {% else %}
+            <div style="text-align:center;padding:40px;color:var(--txt4);">Veri yok</div>
+            {% endif %}
+        </div>
+
+        <!-- Hızlı Özet -->
+        <div class="card" style="padding:18px;">
+            <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px;">📋 Hızlı Özet</div>
+            {% for lbl,val,clr in [
+                ('Toplam Dosya',ozet.toplam|default(0),'var(--txt)'),
+                ('Arşivde',ozet.arsivde|default(0),'var(--green)'),
+                ('Zimmette',ozet.zimmette|default(0),'var(--brand)'),
+                ('10+ Gün Gecikmiş',ozet.gecikmis|default(0),'var(--red)'),
+            ] %}
+            <div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border);">
+                <span style="font-size:12px;color:var(--txt3);">{{ lbl }}</span>
+                <span style="font-size:13px;font-weight:800;color:{{clr}};">{{ val }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Trend Grafiği -->
+    {% if trend %}
+    <div class="card" style="padding:18px;margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+            <span>📈 Son 30 Gün Trend</span>
+            <div style="display:flex;gap:14px;font-size:11px;">
+                <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:var(--brand);border-radius:3px;display:inline-block;"></span>Zimmet</span>
+                <span style="display:flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:var(--green);border-radius:3px;display:inline-block;"></span>Arşive Al</span>
+            </div>
+        </div>
+        <div style="position:relative;height:120px;display:flex;align-items:flex-end;gap:2px;padding:0 4px;">
+            {% set maks_trend = [trend|map(attribute='zimmet_sayisi')|max, 1]|max %}
+            {% for t in trend %}
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;justify-content:flex-end;" title="{{ t.gun }}: {{ t.zimmet_sayisi }} zimmet, {{ t.arsiv_sayisi }} arşiv">
+                <div style="width:100%;background:var(--brand);border-radius:3px 3px 0 0;
+                            height:{{ [t.zimmet_sayisi*100//maks_trend, 2]|max }}%;opacity:0.85;"></div>
+                {% if t.arsiv_sayisi %}
+                <div style="width:100%;background:var(--green);border-radius:3px 3px 0 0;
+                            height:{{ [t.arsiv_sayisi*100//maks_trend, 1]|max }}%;opacity:0.7;margin-top:-2px;"></div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--txt4);margin-top:4px;padding:0 4px;">
+            <span>{{ trend[0].gun if trend else '' }}</span>
+            <span>{{ trend[-1].gun if trend else '' }}</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- İlçe + Personel tabloları -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="card" style="overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--txt);">📍 İlçe Bazlı Dağılım (Top 12)</div>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr style="background:var(--surface2);">
+                    <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:1px solid var(--border);">İLÇE</th>
+                    <th style="padding:9px 8px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:1px solid var(--border);">TOPLAM</th>
+                    <th style="padding:9px 8px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:1px solid var(--border);">GECİKMİŞ</th>
+                    <th style="padding:9px 14px;border-bottom:1px solid var(--border);"></th>
+                </tr></thead>
+                <tbody>
+                {% if ilce %}{% set mt = [ilce[0].toplam|default(0),1]|max %}
+                {% for i in ilce[:12] %}
+                <tr style="border-bottom:1px solid var(--border);{% if loop.index is even %}background:var(--surface2);{% endif %}">
+                    <td style="padding:9px 14px;font-size:13px;font-weight:600;color:var(--txt2);">{{ i.ilce }}</td>
+                    <td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--brand);">{{ i.toplam }}</td>
+                    <td style="padding:9px 8px;text-align:center;color:{% if i.gecikmis > 0 %}var(--red){% else %}var(--txt4){% endif %};font-weight:{% if i.gecikmis > 0 %}700{% else %}400{% endif %};">{{ i.gecikmis|default(0) }}</td>
+                    <td style="padding:9px 14px;"><div style="height:5px;background:var(--border);border-radius:99px;overflow:hidden;"><div style="height:100%;background:var(--brand);border-radius:99px;width:{{ (i.toplam*100//mt) }}%;"></div></div></td>
+                </tr>
+                {% endfor %}
+                {% else %}<tr><td colspan="4" style="padding:32px;text-align:center;color:var(--txt4);">Veri yok</td></tr>{% endif %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card" style="overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:700;color:var(--txt);">👤 Personel Bazlı (Top 10)</div>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr style="background:var(--surface2);">
+                    <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:1px solid var(--border);">PERSONEL</th>
+                    <th style="padding:9px 8px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:1px solid var(--border);">ZİMMET</th>
+                    <th style="padding:9px 8px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:1px solid var(--border);">GECİKMİŞ</th>
+                    <th style="padding:9px 8px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:1px solid var(--border);">MAX GÜN</th>
+                </tr></thead>
+                <tbody>
+                {% for p in personel[:10] %}
+                <tr style="border-bottom:1px solid var(--border);{% if loop.index is even %}background:var(--surface2);{% endif %}">
+                    <td style="padding:9px 14px;font-size:13px;font-weight:600;color:var(--txt2);">{{ p.personel }}</td>
+                    <td style="padding:9px 8px;text-align:center;font-weight:700;color:var(--brand);">{{ p.zimmette }}</td>
+                    <td style="padding:9px 8px;text-align:center;color:{% if p.gecikmis > 0 %}var(--red){% else %}var(--txt4){% endif %};font-weight:{% if p.gecikmis > 0 %}700{% else %}400{% endif %};">{{ p.gecikmis }}</td>
+                    <td style="padding:9px 8px;text-align:center;font-size:12px;color:var(--txt4);">{{ p.max_gun|default(0) }}g</td>
+                </tr>
+                {% else %}<tr><td colspan="4" style="padding:32px;text-align:center;color:var(--txt4);">Veri yok</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

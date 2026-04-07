@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% set active = "rehber" %}
+{% block extra_css %}
+.rehber-kart {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    transition: all 0.15s;
+    cursor: default;
+}
+.rehber-kart:hover {
+    border-color: var(--brand);
+    box-shadow: 0 4px 16px rgba(26,111,191,0.12);
+    transform: translateY(-1px);
+}
+.r-avatar {
+    width: 52px; height: 52px;
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 22px; font-weight: 800;
+    flex-shrink: 0;
+}
+.r-name { font-size: 14px; font-weight: 700; color: var(--txt); }
+.r-role { font-size: 11px; color: var(--txt4); margin: 2px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+.r-tel { display: flex; align-items: center; gap: 8px; }
+.r-num { font-size: 20px; font-weight: 800; color: var(--brand); letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+.r-copy { background: var(--blue-bg); border: none; border-radius: 6px; padding: 4px 8px; cursor: pointer; color: var(--brand); font-size: 12px; transition: all 0.1s; }
+.r-copy:hover { background: var(--brand); color: white; }
+.r-no-tel { font-size: 12px; color: var(--txt4); font-style: italic; }
+{% endblock %}
+
+{% block content %}
+<div style="padding:28px 32px;">
+
+    <!-- Başlık -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+        <div>
+            <div style="font-size:22px;font-weight:800;color:var(--txt);display:flex;align-items:center;gap:10px;">
+                <div style="width:40px;height:40px;background:var(--blue-bg);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">📞</div>
+                Telefon Rehberi
+            </div>
+            <div style="font-size:12px;color:var(--txt4);margin-top:4px;margin-left:50px;">
+                Toplam <strong>{{ kullanicilar|length }}</strong> kişi kayıtlı
+            </div>
+        </div>
+        <button onclick="location.reload()" class="btn btn-ghost">↻ Yenile</button>
+    </div>
+
+    <!-- Arama + İstatistik -->
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;">
+        <div style="flex:1;max-width:360px;position:relative;">
+            <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--txt4);font-size:16px;">🔍</span>
+            <input id="ara-input" type="search" class="input"
+                   placeholder="İsim veya dahili numarayla ara..."
+                   style="padding-left:40px;font-size:13px;"
+                   oninput="ara(this.value)">
+        </div>
+        <div style="display:flex;gap:8px;">
+            {% set dahili_var = kullanicilar|selectattr('dahili')|list|length %}
+            <div style="padding:6px 14px;background:var(--green-bg);border:1px solid #A7F3D0;border-radius:8px;font-size:12px;font-weight:600;color:var(--green);">
+                ✓ {{ dahili_var }} dahili kayıtlı
+            </div>
+            {% if kullanicilar|length - dahili_var > 0 %}
+            <div style="padding:6px 14px;background:var(--amber-bg);border:1px solid #FCD34D;border-radius:8px;font-size:12px;font-weight:600;color:var(--amber);">
+                ⚠ {{ kullanicilar|length - dahili_var }} dahili eksik
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Bölüm: Arşiv Görevlileri -->
+    {% set arsiv_listesi = kullanicilar|selectattr('role','eq','arsiv')|list %}
+    {% if arsiv_listesi %}
+    <div style="margin-bottom:8px;">
+        <div style="font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;height:1px;background:var(--border);"></div>
+            <span>ARŞİV GÖREVLİLERİ</span>
+            <div style="flex:1;height:1px;background:var(--border);"></div>
+        </div>
+        <div class="rehber-grid" id="grid-arsiv"
+             style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:24px;">
+            {% for u in arsiv_listesi %}
+            <div class="rehber-kart" data-isim="{{ u.full_name|lower }}" data-dahili="{{ u.dahili|default('') }}">
+                <div class="r-avatar" style="background:linear-gradient(135deg,#1A6FBF,#155EA0);">{{ u.full_name[0].upper() }}</div>
+                <div style="flex:1;min-width:0;">
+                    <div class="r-name">{{ u.full_name }}</div>
+                    <div class="r-role">🏛 Arşiv Görevlisi</div>
+                    {% if u.dahili %}
+                    <div class="r-tel">
+                        <span style="font-size:14px;">📞</span>
+                        <span class="r-num">{{ u.dahili }}</span>
+                        <button class="r-copy" onclick="kopyala('{{ u.dahili }}','{{ u.full_name }}')" title="Kopyala">📋</button>
+                    </div>
+                    {% else %}
+                    <div class="r-no-tel">Dahili belirtilmemiş</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Bölüm: Personel -->
+    {% set personel_listesi = kullanicilar|rejectattr('role','eq','arsiv')|list %}
+    {% if personel_listesi %}
+    <div style="margin-bottom:8px;">
+        <div style="font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;height:1px;background:var(--border);"></div>
+            <span>PERSONEL</span>
+            <div style="flex:1;height:1px;background:var(--border);"></div>
+        </div>
+        <div class="rehber-grid" id="grid-personel"
+             style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">
+            {% for u in personel_listesi|sort(attribute='full_name') %}
+            <div class="rehber-kart" data-isim="{{ u.full_name|lower }}" data-dahili="{{ u.dahili|default('') }}">
+                <div class="r-avatar" style="background:linear-gradient(135deg,#536478,#3d4f60);">{{ u.full_name[0].upper() }}</div>
+                <div style="flex:1;min-width:0;">
+                    <div class="r-name">{{ u.full_name }}</div>
+                    <div class="r-role">👤 Personel</div>
+                    {% if u.dahili %}
+                    <div class="r-tel">
+                        <span style="font-size:14px;">📞</span>
+                        <span class="r-num">{{ u.dahili }}</span>
+                        <button class="r-copy" onclick="kopyala('{{ u.dahili }}','{{ u.full_name }}')" title="Kopyala">📋</button>
+                    </div>
+                    {% else %}
+                    <div class="r-no-tel">Dahili belirtilmemiş</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Boş sonuç -->
+    <div id="bos-sonuc" style="display:none;text-align:center;padding:60px;color:var(--txt4);">
+        <div style="font-size:32px;margin-bottom:8px;">🔍</div>
+        <div style="font-size:14px;">Arama sonucu bulunamadı</div>
+    </div>
+
+    <div style="margin-top:20px;font-size:12px;color:var(--txt4);text-align:center;border-top:1px solid var(--border);padding-top:16px;">
+        Dahili numarası eksik personel için yöneticinize başvurunuz · İBB Gayrimenkul Geliştirme ve Yönetim Dairesi
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function kopyala(numara, isim) {
+    navigator.clipboard.writeText(numara).then(() => bildirim('✓ ' + isim + ' — ' + numara + ' kopyalandı'));
+}
+
+function ara(q) {
+    q = q.toLowerCase().trim();
+    let gorunen = 0;
+    document.querySelectorAll('.rehber-kart').forEach(kart => {
+        const isim   = kart.dataset.isim   || '';
+        const dahili = kart.dataset.dahili || '';
+        const esles  = !q || isim.includes(q) || dahili.includes(q);
+        kart.style.display = esles ? '' : 'none';
+        if (esles) gorunen++;
+    });
+    document.getElementById('bos-sonuc').style.display = (q && gorunen === 0) ? '' : 'none';
+}
+</script>
+{% endblock %}

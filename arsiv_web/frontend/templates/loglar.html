@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% set active = "loglar" %}
+{% block extra_css %}
+.log-satir { transition: background 0.1s; }
+.log-satir:hover { background: var(--surface2) !important; }
+.islem-badge { display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:700;font-family:monospace;letter-spacing:0.02em; }
+{% endblock %}
+{% block content %}
+<div style="padding:24px 32px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <div>
+            <div class="page-title">📋 Sistem Logları</div>
+            <div class="page-subtitle">Kullanıcı giriş ve işlem kayıtları</div>
+        </div>
+        <button onclick="location.reload()" class="btn btn-ghost">↻ Yenile</button>
+    </div>
+
+    <!-- Sekmeler -->
+    <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;">
+        <a href="/loglar?tip=action&filtre={{ filtre }}"
+           style="padding:10px 20px;font-size:13px;font-weight:{% if aktif_tip=='action' %}700{% else %}500{% endif %};
+                  color:{% if aktif_tip=='action' %}var(--brand){% else %}var(--txt3){% endif %};
+                  border-bottom:2px solid {% if aktif_tip=='action' %}var(--brand){% else %}transparent{% endif %};
+                  margin-bottom:-2px;text-decoration:none;display:flex;align-items:center;gap:6px;">
+            ⚙ İşlem Logları
+            <span style="background:{% if aktif_tip=='action' %}var(--brand){% else %}var(--border){% endif %};
+                         color:{% if aktif_tip=='action' %}white{% else %}var(--txt4){% endif %};
+                         padding:1px 7px;border-radius:10px;font-size:11px;">{{ action_logs|length }}</span>
+        </a>
+        <a href="/loglar?tip=login"
+           style="padding:10px 20px;font-size:13px;font-weight:{% if aktif_tip=='login' %}700{% else %}500{% endif %};
+                  color:{% if aktif_tip=='login' %}var(--brand){% else %}var(--txt3){% endif %};
+                  border-bottom:2px solid {% if aktif_tip=='login' %}var(--brand){% else %}transparent{% endif %};
+                  margin-bottom:-2px;text-decoration:none;display:flex;align-items:center;gap:6px;">
+            🔐 Giriş Logları
+            <span style="background:{% if aktif_tip=='login' %}var(--brand){% else %}var(--border){% endif %};
+                         color:{% if aktif_tip=='login' %}white{% else %}var(--txt4){% endif %};
+                         padding:1px 7px;border-radius:10px;font-size:11px;">{{ login_logs|length }}</span>
+        </a>
+    </div>
+
+    {% if aktif_tip == 'action' %}
+    <!-- Filtreler -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+        <form method="get" style="display:flex;gap:6px;align-items:center;flex:1;min-width:240px;">
+            <input type="hidden" name="tip" value="action">
+            <div style="position:relative;flex:1;">
+                <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--txt4);">🔍</span>
+                <input name="filtre" value="{{ filtre }}" type="search" class="input"
+                       style="padding-left:32px;" placeholder="Kullanıcı, işlem tipi veya detay ara...">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Ara</button>
+            {% if filtre %}<a href="/loglar?tip=action" class="btn btn-ghost btn-sm">✕ Temizle</a>{% endif %}
+        </form>
+        <!-- Hızlı filtreler -->
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+            {% for tip_f, renk, bg in [
+                ('MESAJ','#B86A00','#FEF3E2'),
+                ('DOSYA','#1A6FBF','#E8F1FA'),
+                ('KULLANICI','#0A7C4E','#E6F4EE'),
+                ('SİL','#C0392B','#FDECEA'),
+                ('YENİ','#536478','#F1F5F9'),
+                ('TOPLU','#7C3AED','#F5F3FF'),
+            ] %}
+            <a href="/loglar?tip=action&filtre={{ tip_f }}"
+               style="padding:5px 11px;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none;white-space:nowrap;
+                      background:{% if filtre==tip_f %}{{renk}}{% else %}{{bg}}{% endif %};
+                      color:{% if filtre==tip_f %}white{% else %}{{renk}}{% endif %};
+                      border:1px solid {{renk}}30;">{{ tip_f }}</a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- İşlem Logları Tablosu -->
+    <div class="card" style="overflow:hidden;">
+        <div class="table-wrap">
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr style="background:var(--surface2);">
+                    <th style="padding:10px 14px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);width:36px;">#</th>
+                    <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">ZAMAN</th>
+                    <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">KULLANICI</th>
+                    <th style="padding:10px 14px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">ROL</th>
+                    <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">İŞLEM</th>
+                    <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">DETAY</th>
+                </tr></thead>
+                <tbody>
+                {% for log in action_logs %}
+                {% set at = log.action_type|default('') %}
+                {% set renk = '#B86A00' if 'MESAJ' in at else '#C0392B' if 'SİL' in at or 'SIL' in at else '#0A7C4E' if 'EKLE' in at or 'YENİ' in at else '#1A6FBF' if 'DOSYA' in at else '#536478' %}
+                {% set bg   = '#FEF3E2' if 'MESAJ' in at else '#FDECEA' if 'SİL' in at or 'SIL' in at else '#E6F4EE' if 'EKLE' in at or 'YENİ' in at else '#E8F1FA' if 'DOSYA' in at else '#F1F5F9' %}
+                <tr class="log-satir" style="border-bottom:1px solid var(--border);">
+                    <td style="padding:9px 14px;text-align:center;font-size:12px;color:var(--txt4);">{{ log.id }}</td>
+                    <td style="padding:9px 14px;font-size:12px;color:var(--txt4);white-space:nowrap;">
+                        <div>{{ log.action_time[:10] if log.action_time else '—' }}</div>
+                        <div style="font-weight:600;color:var(--txt3);">{{ log.action_time[11:16] if log.action_time and log.action_time|length > 10 else '' }}</div>
+                    </td>
+                    <td style="padding:9px 14px;">
+                        <div style="font-size:13px;font-weight:600;color:var(--txt2);">{{ log.full_name }}</div>
+                        <div style="font-size:11px;color:var(--txt4);">@{{ log.username }}</div>
+                    </td>
+                    <td style="padding:9px 14px;text-align:center;">
+                        {% if log.role=='admin' %}<span class="badge badge-red">Admin</span>
+                        {% elif log.role=='arsiv' %}<span class="badge badge-blue">Arşiv</span>
+                        {% else %}<span class="badge badge-gray">Viewer</span>{% endif %}
+                    </td>
+                    <td style="padding:9px 14px;">
+                        <span class="islem-badge" style="background:{{bg}};color:{{renk}};">{{ at }}</span>
+                    </td>
+                    <td style="padding:9px 14px;font-size:12px;color:var(--txt3);max-width:320px;">
+                        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ log.detail|default('') }}">
+                            {{ log.detail|default('—') }}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" style="padding:48px;text-align:center;color:var(--txt4);">
+                    {% if filtre %}🔍 "{{ filtre }}" için sonuç bulunamadı{% else %}İşlem logu bulunamadı{% endif %}
+                </td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if action_logs %}
+        <div style="padding:10px 14px;border-top:1px solid var(--border);font-size:12px;color:var(--txt4);display:flex;justify-content:space-between;">
+            <span>{{ action_logs|length }} kayıt gösteriliyor</span>
+            <span>Son güncelleme: şimdi</span>
+        </div>
+        {% endif %}
+    </div>
+
+    {% else %}
+    <!-- Giriş Logları -->
+    <div class="card" style="overflow:hidden;">
+        <div class="table-wrap">
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr style="background:var(--surface2);">
+                    <th style="padding:10px 14px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">#</th>
+                    <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">GİRİŞ ZAMANI</th>
+                    <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">KULLANICI</th>
+                    <th style="padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">AD SOYAD</th>
+                    <th style="padding:10px 14px;text-align:center;font-size:11px;font-weight:700;color:var(--txt4);text-transform:uppercase;border-bottom:2px solid var(--border);">ROL</th>
+                </tr></thead>
+                <tbody>
+                {% for log in login_logs %}
+                <tr class="log-satir" style="border-bottom:1px solid var(--border);">
+                    <td style="padding:9px 14px;text-align:center;font-size:12px;color:var(--txt4);">{{ log.id }}</td>
+                    <td style="padding:9px 14px;font-size:12px;white-space:nowrap;">
+                        <div style="color:var(--txt4);">{{ log.login_time[:10] if log.login_time else '—' }}</div>
+                        <div style="font-weight:600;color:var(--txt3);">{{ log.login_time[11:19] if log.login_time and log.login_time|length > 10 else '' }}</div>
+                    </td>
+                    <td style="padding:9px 14px;font-size:13px;font-weight:600;color:var(--txt2);">@{{ log.username }}</td>
+                    <td style="padding:9px 14px;font-size:13px;color:var(--txt2);">{{ log.full_name }}</td>
+                    <td style="padding:9px 14px;text-align:center;">
+                        {% if log.role=='admin' %}<span class="badge badge-red">Admin</span>
+                        {% elif log.role=='arsiv' %}<span class="badge badge-blue">Arşiv</span>
+                        {% else %}<span class="badge badge-gray">Viewer</span>{% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" style="padding:48px;text-align:center;color:var(--txt4);">Giriş logu bulunamadı</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if login_logs %}
+        <div style="padding:10px 14px;border-top:1px solid var(--border);font-size:12px;color:var(--txt4);">
+            {{ login_logs|length }} giriş kaydı
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

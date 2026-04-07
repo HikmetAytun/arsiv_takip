@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% set active = "bekleyen" %}
+{% block content %}
+<div style="padding:28px 32px;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;">
+        <div>
+            <div class="page-title" style="display:flex;align-items:center;gap:8px;">⚠️ En Çok Bekleyen Dosyalar</div>
+            <div class="page-subtitle">10 günden fazla teslim edilmemiş dosyalar</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button onclick="location.reload()" class="btn btn-ghost">↻ Yenile</button>
+            <a href="/dosyalar" class="btn btn-ghost">📂 Dosya Kayıtlarında Gör</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="table-wrap">
+            <table>
+                <thead><tr>
+                    <th>DOSYA NO</th><th>İLÇE</th><th>TESLİM ALAN</th>
+                    <th>ARŞİV GÖREVLİSİ</th><th>TESLİM TARİHİ</th><th>BEKLEME (GÜN)</th>
+                </tr></thead>
+                <tbody>
+                {% for d in dosyalar %}
+                <tr style="background:#FFF5F5;">
+                    <td style="font-weight:700;color:var(--txt);">{{ d.orijinal_dosya_no }}</td>
+                    <td>{{ d.ilce }}</td>
+                    <td style="font-weight:500;">{{ d.teslim_alan_personel|default('—') }}</td>
+                    <td>{{ d.veren_arsiv_gorevlisi|default('—') }}</td>
+                    <td style="color:var(--txt4);font-size:12px;">{{ d.teslim_tarihi|default('—') }}</td>
+                    <td style="font-weight:800;color:var(--red);font-size:15px;">{{ d.bekleme_gun|default(0) }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" style="padding:48px;color:var(--txt4);">Gecikmiş dosya bulunmuyor</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div style="padding:12px 18px;border-top:1px solid var(--border);font-size:12px;color:var(--txt4);">Toplam {{ dosyalar|length }} gecikmiş dosya</div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:center;min-height:60vh;">
+    <div style="text-align:center;max-width:400px;padding:40px;">
+        <div style="font-size:64px;margin-bottom:16px;">{{ ikon|default('❌') }}</div>
+        <div style="font-size:32px;font-weight:800;color:var(--txt);margin-bottom:8px;">{{ kod|default('Hata') }}</div>
+        <div style="font-size:16px;font-weight:600;color:var(--txt2);margin-bottom:8px;">{{ baslik|default('Bir hata oluştu') }}</div>
+        <div style="font-size:13px;color:var(--txt4);margin-bottom:28px;">{{ aciklama|default('Beklenmedik bir hata oluştu. Lütfen tekrar deneyin.') }}</div>
+        <div style="display:flex;gap:10px;justify-content:center;">
+            <button onclick="history.back()" class="btn btn-ghost">← Geri Dön</button>
+            <a href="/panel" class="btn btn-primary">🏠 Ana Panel</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
